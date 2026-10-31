@@ -40,3 +40,36 @@
     @apply animate-pulse rounded-control bg-line;
   }
 }
+
+/* Overview airport map (Leaflet). Bubble colours come from the tokens; CSS wins over Leaflet's SVG attributes. */
+.impact-map {
+  background: var(--color-bg);
+  font-family: var(--font-sans);
+}
+.impact-map .leaflet-control-attribution {
+  font-size: 10px;
+}
+.impact-bubble {
+  transition: fill-opacity 120ms, stroke-width 120ms;
+}
+.impact-high {
+  fill: var(--color-critical);
+  stroke: var(--color-critical);
+}
+.impact-medium {
+  fill: var(--color-warning);
+  stroke: var(--color-warning);
+}
+.impact-low {
+  fill: var(--color-success);
+  stroke: var(--color-success);
+}
+.impact-none {
+  fill: var(--color-muted);
+  stroke: var(--color-muted);
+}
+.us-state {
+  fill: var(--color-surface);
+  fill-opacity: 1;
+  stroke: var(--color-line);
+}

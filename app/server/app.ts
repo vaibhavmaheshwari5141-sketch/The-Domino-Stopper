@@ -9,7 +9,7 @@ import { DataAccessError, type DataSource, UnknownTableError, setDataSource } fr
 import { HttpError } from './http.ts';
 import { getHealth } from './routes/health.ts';
 import { getMeta } from './routes/meta.ts';
-import { getOverview, overviewParams } from './routes/overview.ts';
+import { airportImpactParams, getAirportImpact, getOverview, overviewParams } from './routes/overview.ts';
 import * as aircraftDay from './routes/aircraftDay.ts';
 import * as airports from './routes/airports.ts';
 import * as propagation from './routes/propagation.ts';
@@ -45,6 +45,7 @@ export function createApiHandler(config: Config, source: DataSource): ApiHandler
     { path: 'health', load: () => getHealth(), cache: false },
     { path: 'meta', load: () => getMeta() },
     { path: 'overview', load: getOverview, params: overviewParams },
+    { path: 'overview/airports', load: getAirportImpact, params: airportImpactParams },
     { path: 'planner/dates', load: planner.getDates, params: planner.datesParams },
     { path: 'planner/summary', load: planner.getSummary, params: planner.summaryParams },
     { path: 'planner/turnarounds', load: planner.getTurnarounds, params: planner.turnaroundsParams },

@@ -45,6 +45,14 @@ export function isoDate(params: URLSearchParams, key: string, fallback?: string)
   return v;
 }
 
+/** A month "YYYY-MM", or null when absent. */
+export function optionalYearMonth(params: URLSearchParams, key: string): string | null {
+  const v = get(params, key);
+  if (v === null) return null;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) throw new HttpError(400, `${key} must be a month like 2026-03`);
+  return v;
+}
+
 /** A three-letter airport code, or null for all airports. */
 export function airportCode(params: URLSearchParams, key = 'airport'): string | null {
   const v = get(params, key)?.toUpperCase() ?? null;

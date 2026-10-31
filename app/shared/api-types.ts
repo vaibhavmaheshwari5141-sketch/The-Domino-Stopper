@@ -107,6 +107,74 @@ export interface OverviewResponse {
   };
 }
 
+// ---- GET /api/overview/airports?budget=5 ----------------------------------------------------------------------------
+
+export type ImpactBand = 'High' | 'Medium' | 'Low';
+
+/**
+ * One airport on the Overview map: gold_dim_airport with coordinates from ref_airports_tz, gold_airport_month summed
+ * over all months (rates weighted by flights), the engine plan from gold_buffer_plan_airport (test period, one budget),
+ * and the delay impact score built from them.
+ */
+export interface AirportImpact {
+  airport: string;
+  name: string | null;
+  city: string | null;
+  state: string | null;
+  lat: number;
+  lon: number;
+  departure_rank: number | null;
+  is_top10: boolean;
+  departures: number | null;
+  turnarounds: number | null;
+  late_departure_rate: number | null;
+  late_arrival_rate: number | null;
+  avg_dep_delay_min: number | null;
+  cancel_rate: number | null;
+  short_turn_share: number | null;           // planned ground time of 55 minutes or less
+  propagated_delay_min: number | null;       // knock-on delay: inbound delay still there at the next departure
+  knock_on_per_turn_min: number | null;
+  network_knock_on_share: number | null;     // share of all airports' knock-on delay
+  buffer_min: number | null;                 // engine plan at the requested budget
+  realised_absorbed_min: number | null;
+  late_departures_avoided: number | null;
+  /** 0 to 100: weighted percentile rank among all airports on IMPACT_COMPONENTS. Null if no component has a value. */
+  impact_score: number | null;
+  impact_band: ImpactBand | null;
+  impact_rank: number | null;                // 1 = most impacted
+}
+
+/**
+ * What goes into the delay impact score, with weights summing to 1: how often flights leave late, how much delay each
+ * turnaround passes on, and how much of the network's knock-on delay starts here (so a small outstation with a few
+ * bad months cannot outrank a hub). Short-turn share is left out: outstations turn almost every aircraft in under
+ * 55 minutes, and knock-on delay per turnaround already reflects short turns.
+ */
+export const IMPACT_COMPONENTS = [
+  { key: 'late_departure_rate', label: 'Late departures (15+ min)', weight: 0.35 },
+  { key: 'knock_on_per_turn_min', label: 'Knock-on delay per turnaround', weight: 0.25 },
+  { key: 'network_knock_on_share', label: 'Share of network knock-on delay', weight: 0.4 },
+] as const satisfies readonly { key: keyof AirportImpact; label: string; weight: number }[];
+
+/** Lowest score in each band. */
+export const IMPACT_BANDS: { band: ImpactBand; min: number }[] = [
+  { band: 'High', min: 70 },
+  { band: 'Medium', min: 40 },
+  { band: 'Low', min: 0 },
+];
+
+export interface AirportImpactResponse {
+  airports: AirportImpact[];
+  context: {
+    budget: number;                    // budget behind the engine columns
+    period: string | null;             // months behind the delay measures, e.g. "2025-01 to 2026-08"
+    plan_period: string | null;        // months behind the engine plan
+    missing_coordinates: string[];     // airports left off the map because ref_airports_tz has no position
+    months: string[];                  // every month with airport data, for the period filter
+    budgets: number[];                 // every budget in the engine plan, for the budget filter
+  };
+}
+
 // ---- Buffer Planner (/api/planner/...) -----------------------------------------------------------------------------
 
 /** GET /api/planner/dates: one row of gold_buffer_plan_daily per day. */

@@ -79,6 +79,12 @@ npm run dev          # app + API on http://localhost:5173
 - http://localhost:5173/api/meta → latest engine run (`gold_engine_run_log`) and the table catalog (`gold_table_catalog`)
 - http://localhost:5173/api/overview?budget=5 → Overview page: headline KPIs (`gold_kpi_headline`), strategy comparison
   (`gold_sim_strategy`), monthly network trend (`gold_network_daily`), and a summary and five insights written from the KPIs
+- `/api/overview/airports?budget=5[&from=2026-01&to=2026-08]` → Overview airport map (months optional and inclusive; the
+  score is recomputed for the period): every airport in `gold_dim_airport` with its coordinates from
+  `ref_airports_tz` (notebook 01, OurAirports), delay measures from `gold_airport_month` (all months), the engine plan from
+  `gold_buffer_plan_airport`, and a 0–100 delay impact score (weighted percentile rank: late departures 35%, knock-on delay
+  per turnaround 25%, share of network knock-on delay 40%; weights in `IMPACT_COMPONENTS`, `shared/api-types.ts`). The
+  basemap is US state outlines bundled from `us-atlas`, so the map needs no tile server or API key.
 - `/api/planner/...` → Buffer Planner (`gold_buffer_recommendation` joined to `gold_ml_predictions`, always filtered by day and
   budget, paged on the server; `gold_buffer_plan_daily` for day totals):
   `dates?budget=5`, `summary?date=2026-03-15&budget=5[&airport=DFW]`, `airports?date=…`,

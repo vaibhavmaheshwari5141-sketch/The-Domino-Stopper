@@ -2,7 +2,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   type AircraftDay, type AircraftListResponse, type AirportBuffer, type AirportHourly, type AirportListResponse, type AirportMonth,
-  type AirportProfile, type NetworkScatter, type AbsorptionResult, type LegPeriod, type PropagationByLeg,
+  type AirportProfile, type NetworkScatter, type AirportImpactResponse, type AbsorptionResult, type LegPeriod, type PropagationByLeg,
   type PropagationCurve, type PropagationKpis, type PropagationSegments, type SegmentType, apiGet, buildUrl, type MetaResponse, type OverviewResponse, type PlannerAirport, type PlannerDay, type PlannerDetail, type PlannerSummary,
   type PlannerTurnaroundsResponse, type QueryParams, type SimAllocationResponse, type SimDailyResponse, type SimStrategiesResponse,
   type SimSweepResponse, type ModelQuality, type RiskGroundBand, type RiskHeatmap, type RiskSummary,
@@ -20,6 +20,15 @@ export function useOverview(budget: number) {
   return useQuery({
     queryKey: ['overview', budget],
     queryFn: ({ signal }) => apiGet<OverviewResponse>('/api/overview', { budget }, { signal }),
+  });
+}
+
+/** `from` / `to` are months ("2026-01"), null for open-ended. Keeps the previous map on screen while filters change. */
+export function useAirportImpact(budget: number, from: string | null, to: string | null) {
+  return useQuery({
+    queryKey: ['overview', 'airports', budget, from, to],
+    queryFn: ({ signal }) => apiGet<AirportImpactResponse>('/api/overview/airports', { budget, from, to }, { signal }),
+    placeholderData: keepPreviousData,
   });
 }
 

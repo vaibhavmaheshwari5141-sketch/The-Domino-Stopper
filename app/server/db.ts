@@ -46,6 +46,8 @@ export const GOLD_TABLES: ReadonlySet<string> = new Set([
   'gold_buffer_plan_airport', 'gold_sim_strategy', 'gold_sim_daily', 'gold_buffer_allocation', 'gold_data_quality',
   'gold_engine_run_log', 'gold_table_catalog',
 ]);
+// Reference tables from databricks/01_import_raw_bts.py
+const REF_TABLES: ReadonlySet<string> = new Set(['ref_airports_tz']);   // airport name, coordinates, time zone
 export const SAMPLE_TABLE = /^sample_[A-Za-z0-9_]+$/;      // input samples from databricks/03_input_tables_sample.py
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -72,7 +74,7 @@ export function dataMode(): DataMode {
 // ---- SQL building ------------------------------------------------------------------------------------------------
 
 export function isAllowedTable(name: string): boolean {
-  return GOLD_TABLES.has(name) || sampleTables.has(name);
+  return GOLD_TABLES.has(name) || REF_TABLES.has(name) || sampleTables.has(name);
 }
 
 /**
