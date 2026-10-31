@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg font-sans text-ink antialiased;
+  }
+}
+
+@layer components {
+  /* Numbers: mono digits that line up in columns */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Small mono labels: KPI captions, axis titles, table headers */
+  .label {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  /* Visible keyboard focus for custom controls */
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-teal focus-visible:ring-offset-1;
+  }
+
+  /* Placeholder block while data loads */
+  .skeleton {
+    @apply animate-pulse rounded-control bg-line;
+  }
+}

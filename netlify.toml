@@ -1,10 +1,26 @@
+# Netlify builds the web app in app/: the React app from app/dist plus one function (app/netlify/functions/api.ts)
+# serving /api/*. Paths below are relative to the base directory. app/netlify.toml holds the same settings.
+# Set DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH and DATABRICKS_TOKEN in
+# Site configuration -> Environment variables (scope: Functions). Never commit them.
+
 [build]
   base = "app"
   command = "npm run build"
   publish = "dist"
 
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
+
+# Order matters: the API rewrite must come before the single-page-app fallback.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
 
 [[redirects]]
   from = "/*"

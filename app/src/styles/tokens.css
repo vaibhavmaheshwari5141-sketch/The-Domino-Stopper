@@ -1,0 +1,38 @@
+/* Design tokens for The Domino Stopper. Light theme only.
+   Tailwind exposes these through tailwind.config.ts; plain CSS can use the variables directly. */
+:root {
+  color-scheme: light;
+
+  /* Neutrals */
+  --color-bg: #F5F7FA;          /* page background */
+  --color-surface: #FFFFFF;     /* cards, panels */
+  --color-ink: #142030;         /* primary text */
+  --color-muted: #556274;       /* secondary text, axis labels */
+  --color-line: #D7DEE7;        /* borders, gridlines */
+
+  /* Brand */
+  --color-navy: #0B2545;        /* headers, primary actions */
+  --color-tarmac: #1A2B40;      /* dark panels, navigation */
+
+  /* Accents */
+  --color-amber: #C9741C;       /* buffer minutes, highlights */
+  --color-amber-soft: #F6E6D3;
+  --color-teal: #23797F;        /* model / engine output, focus */
+  --color-teal-soft: #DCEEEE;
+
+  /* Semantic */
+  --color-success: #2E7D4F;
+  --color-warning: #B7791F;
+  --color-critical: #B03A2E;
+  --color-success-soft: #DFEFE5;  /* chip backgrounds, e.g. risk bands */
+  --color-warning-soft: #F7EBD5;
+  --color-critical-soft: #F6E0DD;
+
+  /* Shape */
+  --radius-card: 8px;
+  --radius-control: 6px;
+
+  /* Type */
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+}

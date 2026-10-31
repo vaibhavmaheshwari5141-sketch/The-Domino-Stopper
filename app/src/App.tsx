@@ -1,19 +1,22 @@
-import { Route, Routes } from 'react-router-dom'
-import Layout from './components/Layout.tsx'
-import Console from './pages/Console.tsx'
-import Journey from './pages/Journey.tsx'
-import Landing from './pages/Landing.tsx'
-import NotFound from './pages/NotFound.tsx'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { RouterProvider, createBrowserRouter } from 'react-router-dom';
+import { routes } from './routes';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      staleTime: 5 * 60 * 1000,
+    },
+  },
+});
+
+const router = createBrowserRouter(routes);
 
 export default function App() {
   return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route index element={<Landing />} />
-        <Route path="console" element={<Console />} />
-        <Route path="journey" element={<Journey />} />
-        <Route path="*" element={<NotFound />} />
-      </Route>
-    </Routes>
-  )
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  );
 }

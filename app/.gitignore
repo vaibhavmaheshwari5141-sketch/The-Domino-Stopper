@@ -1,24 +1,26 @@
-# Logs
-logs
+# Secrets: .env files are never committed (.env.example is)
+.env
+.env.*
+!.env.example
+
+# Dependencies and builds
+node_modules/
+dist/
+dist-ssr/
+.netlify/
+*.tsbuildinfo
+
+# Data: the consumption tables live in Databricks; local copies stay out of git
+consumption_tables/
+*.parquet
+*.csv
+
+# Logs, OS and editor files
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?

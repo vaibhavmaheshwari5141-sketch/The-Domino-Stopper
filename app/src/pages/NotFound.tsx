@@ -1,12 +1,13 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router-dom';
 
 export default function NotFound() {
   return (
-    <section className="py-20 text-center">
-      <h1 className="text-2xl font-bold">Page not found</h1>
-      <Link to="/" className="mt-4 inline-block text-brand-600 hover:underline dark:text-brand-300">
-        Back to home
+    <div>
+      <p className="label">404</p>
+      <h2 className="mt-1 text-2xl font-semibold text-navy">Page not found</h2>
+      <Link to="/overview" className="focus-ring mt-2 inline-block rounded-control text-teal underline">
+        Go to Overview
       </Link>
-    </section>
-  )
+    </div>
+  );
 }
