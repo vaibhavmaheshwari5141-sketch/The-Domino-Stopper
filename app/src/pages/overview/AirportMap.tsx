@@ -42,6 +42,15 @@ const LOWER_48: LatLngBoundsExpression = [[24.4, -124.8], [49.4, -66.9]];
 type View = 'lower48' | 'all';
 
 const BAND_DOT: Record<ImpactBand, string> = { High: 'bg-critical', Medium: 'bg-warning', Low: 'bg-success' };
+const BAND_TOKEN: Record<ImpactBand | 'none', string> = {
+  High: '--color-critical', Medium: '--color-warning', Low: '--color-success', none: '--color-muted',
+};
+
+/** Bubble colours from the design tokens (src/styles/tokens.css), the same ones as the legend dots. */
+function readBandColors(): Record<string, string> {
+  const css = getComputedStyle(document.documentElement);
+  return Object.fromEntries(Object.entries(BAND_TOKEN).map(([band, token]) => [band, css.getPropertyValue(token).trim()]));
+}
 const bandRange = (i: number) => {
   const { min } = IMPACT_BANDS[i];
   return i === 0 ? `${min}+` : `${min}–${IMPACT_BANDS[i - 1].min - 1}`;
@@ -168,6 +177,7 @@ interface Props {
 
 export function AirportMap({ budget, focus }: Props) {
   const [filters, setFilters] = useState(() => defaultFilters(budget));
+  const [bandColors] = useState(readBandColors);
   const { data, isError, error, refetch, isFetching } = useAirportImpact(filters.budget, filters.from, filters.to);
   const [view, setView] = useState<View>('lower48');
   const [hover, setHover] = useState<Hover | null>(null);
@@ -321,8 +331,12 @@ export function AirportMap({ budget, focus }: Props) {
                   ref={(m) => { if (m) markers.current.set(a.airport, m); else markers.current.delete(a.airport); }}
                   center={[a.lat, a.lon]}
                   radius={radius(a)}
+                  className="impact-bubble"
                   pathOptions={{
-                    className: `impact-bubble impact-${(a.impact_band ?? 'none').toLowerCase()}`,
+                    // Colours as style values, not classes: react-leaflet applies pathOptions with setStyle, which
+                    // never adds a class (it only seemed to work in development, where strict mode redraws twice)
+                    color: bandColors[a.impact_band ?? 'none'] ?? bandColors.none,
+                    fillColor: bandColors[a.impact_band ?? 'none'] ?? bandColors.none,
                     weight: active ? 2.5 : 1,
                     fillOpacity: active ? 0.85 : 0.5,
                   }}

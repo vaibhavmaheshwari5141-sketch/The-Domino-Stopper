@@ -41,7 +41,8 @@
   }
 }
 
-/* Overview airport map (Leaflet). Bubble colours come from the tokens; CSS wins over Leaflet's SVG attributes. */
+/* Overview airport map (Leaflet). Bubble colours are set in AirportMap.tsx from the tokens (as style values, since
+   react-leaflet cannot add a class to an existing bubble); the state outlines are styled here. */
 .impact-map {
   background: var(--color-bg);
   font-family: var(--font-sans);
@@ -51,22 +52,6 @@
 }
 .impact-bubble {
   transition: fill-opacity 120ms, stroke-width 120ms;
-}
-.impact-high {
-  fill: var(--color-critical);
-  stroke: var(--color-critical);
-}
-.impact-medium {
-  fill: var(--color-warning);
-  stroke: var(--color-warning);
-}
-.impact-low {
-  fill: var(--color-success);
-  stroke: var(--color-success);
-}
-.impact-none {
-  fill: var(--color-muted);
-  stroke: var(--color-muted);
 }
 .us-state {
   fill: var(--color-surface);
