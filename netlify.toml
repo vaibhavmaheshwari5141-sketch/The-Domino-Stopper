@@ -14,6 +14,9 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  # Settings that are not secret, so their everyday values ("databricks", "workspace", ...) do not fail the secret scan
+  # when they are saved as secret variables. The token, HTTP path and host name are still scanned.
+  SECRETS_SCAN_OMIT_KEYS = "DATA_MODE,LOCAL_DATA_DIR,LOCAL_INPUT_DIR,CORS_ORIGINS,DATABRICKS_CATALOG,DATABRICKS_SCHEMA,CACHE_TTL_SECONDS,DATABRICKS_TIMEOUT_SECONDS,VITE_API_BASE_URL"
 
 # Order matters: the API rewrite must come before the single-page-app fallback.
 [[redirects]]
