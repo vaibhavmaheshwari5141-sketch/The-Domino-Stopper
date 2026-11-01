@@ -118,7 +118,7 @@ export async function getModelQuality(): Promise<ModelQuality> {
     ),
     query<ModelMetric>(
       `SELECT model, predictor, period, measure, value FROM ${t('gold_model_metrics')}
-       WHERE model IN (:m0, :m1) AND period IN ('test', 'validate') ORDER BY model, measure, period, predictor`,
+       WHERE model IN (:m0, :m1) AND period = 'test' ORDER BY model, measure, period, predictor`,
       models,
     ),
     query<FeatureImportance>(
@@ -144,7 +144,7 @@ export async function getTopTurnarounds(p: URLSearchParams): Promise<RiskTurnaro
   const limit = Number(p.get('limit'));                         // validated integer
   return query<RiskTurnaround>(
     `SELECT turn_id, flight_date, airport, inbound_from, outbound_to, inbound_flight_no, outbound_flight_no, tail_number,
-            sched_outbound_dep_utc, sched_ground_min, risk_band, p_late15, pred_inbound_delay_min, actual_inbound_delay_min,
+            sched_outbound_dep_utc, sched_ground_min, risk_band, p_late15, p_late15_v1, pred_inbound_delay_min, actual_inbound_delay_min,
             actual_outbound_delay_min, actual_late15
      FROM ${t('gold_ml_predictions')}
      WHERE flight_date = CAST(:date AS DATE) ${airport ? 'AND airport = :airport' : ''}

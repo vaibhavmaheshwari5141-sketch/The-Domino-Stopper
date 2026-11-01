@@ -3,7 +3,7 @@
 
 import type {
   PlannerAirport, PlannerBreakdown, PlannerBudgetOption, PlannerDay, PlannerDetail, PlannerRow, PlannerSummary,
-  PlannerTurnaroundsResponse,
+  PlannerTurnaroundsResponse, ReallocationResponse, ReallocationRow,
 } from '../../shared/api-types.ts';
 import { formatMinutes, formatNumber, formatPercent } from '../../shared/format.ts';
 import {
@@ -16,6 +16,8 @@ import { HttpError } from '../http.ts';
 import { airportCode, intInRange, isoDate, oneOf, oneOfNumber, searchText } from '../params.ts';
 
 const DEFAULT_BUDGET = 5;
+/** The run's main budget: the only one with model-view estimates and a reallocation plan. */
+export const MAIN_BUDGET = 5;
 const MAX_LIMIT = 200;
 const MAX_OFFSET = 100_000;
 
@@ -75,6 +77,8 @@ export const turnaroundsParams = (p: URLSearchParams) => normalised(readTableQue
 export const exportParams = (p: URLSearchParams) => normalised({ ...readTableQuery(p), limit: EXPORT_MAX_ROWS, offset: 0 });
 const readExportQuery = (p: URLSearchParams) => readTableQuery(p, EXPORT_MAX_ROWS);
 export const airportsParams = (p: URLSearchParams) => normalised({ date: isoDate(p, 'date') });
+export const reallocationParams = (p: URLSearchParams) =>
+  normalised({ date: isoDate(p, 'date'), airport: airportCode(p), tail: searchText(p, 'tail') });
 export function detailParams(p: URLSearchParams): URLSearchParams {
   const turnId = p.get('turn_id') ?? '';
   if (!/^\d{8}-[A-Za-z0-9_-]{1,120}$/.test(turnId)) throw new HttpError(400, 'turn_id is not a valid turnaround id');
@@ -124,7 +128,9 @@ const SORT_SQL: Record<SortField, string> = {
 const ROW_COLUMNS = `r.turn_id, r.flight_date, r.airport, p.tail_number, p.inbound_from, p.outbound_to, p.inbound_flight_no,
   p.outbound_flight_no, p.sched_outbound_dep_utc, r.current_ground_min, COALESCE(p.very_short_turn_flag, FALSE) AS very_short_turn_flag,
   p.risk_band, p.p_late15, p.pred_inbound_delay_min, r.day_rank, r.recommended_extra_min, r.new_ground_min,
-  r.expected_absorbed_min, r.reason_code, p.actual_inbound_delay_min, r.realised_absorbed_min,
+  r.expected_absorbed_min, r.reason_code, r.segment, r.chain_multiplier,
+  COALESCE(r.protects_later_flights, FALSE) AS protects_later_flights, p.actual_inbound_delay_min, r.realised_absorbed_min,
+  CASE WHEN r.budget_scenario = ${MAIN_BUDGET} THEN r.realised_absorbed_resp_min END AS realised_absorbed_resp_min,
   COALESCE(r.late_avoided_flag, FALSE) AS late_avoided_flag`;
 
 async function tableRows(q: TableQuery): Promise<PlannerRow[]> {
@@ -240,13 +246,17 @@ export async function getDetail(p: URLSearchParams): Promise<PlannerDetail> {
       { turn_id: turnId },
     ),
     query<PlannerBudgetOption & { current_ground_min: number | null; late_avoided_flag: boolean | null; value_per_buffer_min: number | null;
-      engine_version: string | null; curve_version: string | null }>(
+      engine_version: string | null; curve_version: string | null; segment: string | null; chain_multiplier: number | null;
+      protects_later_flights: boolean | null; eligible_flag: boolean | null; realised_absorbed_resp_min: number | null }>(
       `SELECT budget_scenario, current_ground_min, recommended_extra_min, new_ground_min, expected_absorbed_min, realised_absorbed_min,
-              late_avoided_flag, value_per_buffer_min, day_rank, reason_code, engine_version, curve_version
+              realised_absorbed_resp_min, late_avoided_flag, value_per_buffer_min, day_rank, reason_code, engine_version, curve_version,
+              segment, chain_multiplier, protects_later_flights, eligible_flag
        FROM ${t('gold_buffer_recommendation')} WHERE turn_id = :turn_id ORDER BY budget_scenario`,
       { turn_id: turnId },
     ),
-    query<{ curve_points: string | null }>(`SELECT curve_points FROM ${t('gold_engine_run_log')} ORDER BY run_timestamp_utc DESC LIMIT 1`),
+    query<{ curve_points: string | null; segment_curve_points: string | null }>(
+      `SELECT curve_points, segment_curve_points FROM ${t('gold_engine_run_log')} ORDER BY run_timestamp_utc DESC LIMIT 1`,
+    ),
   ]);
 
   const pred = preds[0];
@@ -260,7 +270,10 @@ export async function getDetail(p: URLSearchParams): Promise<PlannerDetail> {
     { p: pLate, date: String(pred.flight_date) },
   );
 
-  const curve = parseCurve(runs[0]?.curve_points ?? null);
+  // Engine v2 plans with one curve per segment; fall back to the single curve when the segment has none
+  const segmentCurve = rec.segment ? parseSegmentCurves(runs[0]?.segment_curve_points ?? null)[rec.segment] ?? [] : [];
+  const curve = segmentCurve.length ? segmentCurve : parseCurve(runs[0]?.curve_points ?? null);
+  const curveLabel = segmentCurve.length ? `Segment curve: ${rec.segment}` : 'Single curve (all turnarounds)';
   const turnaround = {
     ...(pred as object),
     current_ground_min: rec.current_ground_min ?? (pred.sched_ground_min as number | null),
@@ -270,6 +283,11 @@ export async function getDetail(p: URLSearchParams): Promise<PlannerDetail> {
     new_ground_min: rec.new_ground_min,
     expected_absorbed_min: rec.expected_absorbed_min,
     realised_absorbed_min: rec.realised_absorbed_min,
+    realised_absorbed_resp_min: rec.budget_scenario === MAIN_BUDGET ? rec.realised_absorbed_resp_min : null,
+    segment: rec.segment,
+    chain_multiplier: rec.chain_multiplier,
+    protects_later_flights: rec.protects_later_flights ?? false,
+    eligible_flag: rec.eligible_flag,
     late_avoided_flag: rec.late_avoided_flag ?? false,
     value_per_buffer_min: rec.value_per_buffer_min,
     reason_code: rec.reason_code,
@@ -282,6 +300,7 @@ export async function getDetail(p: URLSearchParams): Promise<PlannerDetail> {
     budgets: recs.map(({ budget_scenario, recommended_extra_min, new_ground_min, expected_absorbed_min, realised_absorbed_min, day_rank, reason_code }) =>
       ({ budget_scenario, recommended_extra_min, new_ground_min, expected_absorbed_min, realised_absorbed_min, day_rank, reason_code })),
     curve,
+    curve_label: curveLabel,
     day_risk_share: share[0]?.share ?? null,
     reason_sentence: reasonInfo(rec.reason_code).sentence,
     why: whyBullets(turnaround, share[0]?.share ?? null, curve),
@@ -300,6 +319,64 @@ export function parseCurve(json: string | null): CurvePoint[] {
   }
 }
 
+/** segment_curve_points: {"Ten busiest | Morning": {"0": 0.97, ...}, ...} -> one sorted curve per segment. */
+export function parseSegmentCurves(json: string | null): Record<string, CurvePoint[]> {
+  try {
+    const obj = JSON.parse(json ?? '{}') as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(obj).map(([segment, points]) => [segment, parseCurve(JSON.stringify(points ?? {}))]));
+  } catch {
+    return {};
+  }
+}
+
+// ---- reallocation (reallocate mode, main budget) -----------------------------------------------------------------
+
+export async function getReallocation(p: URLSearchParams): Promise<ReallocationResponse> {
+  const date = p.get('date')!;
+  const airport = p.get('airport');
+  const tail = p.get('tail');
+  const clauses = ['g.flight_date = CAST(:date AS DATE)'];
+  const params: Params = { date };
+  if (airport) {
+    clauses.push('g.airport = :airport');
+    params.airport = airport;
+  }
+  if (tail) {
+    clauses.push('UPPER(g.tail_number) LIKE :tail');
+    params.tail = `%${tail}%`;      // letters and digits only (searchText), so no LIKE wildcards from the user
+  }
+  const rows = await query<ReallocationRow>(
+    `SELECT g.turn_id, g.flight_date, g.tail_number, g.airport, g.role, g.change_min, g.current_ground_min, g.new_ground_min,
+            g.expected_change_min, g.realised_absorbed_min, g.realised_absorbed_resp_min, p.inbound_from, p.outbound_to,
+            p.inbound_flight_no, p.outbound_flight_no, p.sched_outbound_dep_utc, p.risk_band, p.p_late15
+     FROM ${t('gold_buffer_reallocation')} g
+     LEFT JOIN ${t('gold_ml_predictions')} p ON p.turn_id = g.turn_id AND p.flight_date = CAST(:date AS DATE)
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY g.tail_number, p.sched_outbound_dep_utc, g.turn_id`,
+    params,
+  );
+  type Summed = 'change_min' | 'expected_change_min' | 'realised_absorbed_min' | 'realised_absorbed_resp_min';
+  const sum = (k: Summed, rs = rows) => rs.reduce((s, r) => s + (r[k] ?? 0), 0);
+  const receiving = rows.filter((r) => r.role === 'receives');
+  return {
+    date,
+    airport,
+    tail,
+    budget: MAIN_BUDGET,
+    rows,
+    summary: {
+      aircraft: new Set(rows.map((r) => r.tail_number)).size,
+      receiving: receiving.length,
+      giving: rows.length - receiving.length,
+      minutes_moved: sum('change_min', receiving),
+      net_added_min: sum('change_min'),
+      expected_prevented_min: sum('expected_change_min'),
+      realised_prevented_min: sum('realised_absorbed_min'),
+      realised_prevented_resp_min: sum('realised_absorbed_resp_min'),
+    },
+  };
+}
+
 /** Three plain sentences explaining the recommendation, built from the values. */
 export function whyBullets(tr: PlannerDetail['turnaround'], dayShare: number | null, curve: CurvePoint[]): string[] {
   const riskContext = dayShare === null ? ''
@@ -313,13 +390,15 @@ export function whyBullets(tr: PlannerDetail['turnaround'], dayShare: number | n
   if (tr.recommended_extra_min > 0 && cur !== null && next !== null) {
     ground = `At ${formatNumber(cur)} min of ground time the curve passes on ${passOn(cur)} of delay; at ${formatNumber(next)} min it passes on ${passOn(next)}.`;
   } else if (reasonInfo(tr.reason_code).short === 'Lower value than others') {
-    ground = `Each buffer minute here would absorb ${formatNumber(tr.value_per_buffer_min, 2)} min of delay, less than the turnarounds that got the budget.`;
+    ground = `Each buffer minute here would prevent ${formatNumber(tr.value_per_buffer_min, 2)} min of delay, less than the turnarounds that got the budget.`;
   } else {
     ground = `At ${formatNumber(cur)} min of ground time the curve passes on ${passOn(cur)} of delay.`;
   }
+  const chain = tr.chain_multiplier === null || tr.chain_multiplier === undefined ? ''
+    : ` 1 minute saved here is worth about ${formatNumber(tr.chain_multiplier, 1)} minutes across the aircraft's day.`;
   return [
     `Late chance ${formatPercent(tr.p_late15, 0)}${riskContext}.`,
-    `Predicted inbound delay ${formatMinutes(tr.pred_inbound_delay_min, 1)}.`,
+    `Predicted inbound delay ${formatMinutes(tr.pred_inbound_delay_min, 1)}.${chain}`,
     ground,
   ];
 }
@@ -334,9 +413,10 @@ const CSV_COLUMNS: [header: string, value: (r: PlannerRow) => unknown][] = [
   ['planned_ground_min', (r) => r.current_ground_min], ['very_short_turn', (r) => r.very_short_turn_flag],
   ['risk_band', (r) => r.risk_band], ['late_chance', (r) => r.p_late15], ['pred_inbound_delay_min', (r) => r.pred_inbound_delay_min],
   ['day_rank', (r) => r.day_rank], ['recommended_extra_min', (r) => r.recommended_extra_min], ['new_ground_min', (r) => r.new_ground_min],
-  ['expected_absorbed_min', (r) => r.expected_absorbed_min], ['reason', (r) => r.reason_code],
-  ['backtest_actual_inbound_delay_min', (r) => r.actual_inbound_delay_min], ['backtest_realised_absorbed_min', (r) => r.realised_absorbed_min],
-  ['backtest_late_departure_avoided', (r) => r.late_avoided_flag],
+  ['expected_prevented_min', (r) => r.expected_absorbed_min], ['reason', (r) => r.reason_code], ['segment', (r) => r.segment],
+  ['chain_multiplier', (r) => r.chain_multiplier], ['protects_later_flights', (r) => r.protects_later_flights],
+  ['estimate_actual_inbound_delay_min', (r) => r.actual_inbound_delay_min], ['estimate_prevented_min_curve_view', (r) => r.realised_absorbed_min],
+  ['estimate_prevented_min_model_view', (r) => r.realised_absorbed_resp_min], ['estimate_late_departure_avoided', (r) => r.late_avoided_flag],
 ];
 
 export async function getExport(p: URLSearchParams): Promise<{ filename: string; body: string }> {

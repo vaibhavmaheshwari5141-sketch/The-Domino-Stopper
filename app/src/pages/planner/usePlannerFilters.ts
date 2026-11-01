@@ -11,6 +11,8 @@ export const PAGE_SIZE = 50;
 export const DEFAULT_DATE = '2026-03-15';
 
 export interface PlannerFilters {
+  /** Add buffer (the recommendations table) or reallocate (minutes moved within each aircraft's day). */
+  mode: 'add' | 'reallocate';
   date: string;
   budget: PlannerBudget;
   airport: string | null;
@@ -25,7 +27,7 @@ export interface PlannerFilters {
 }
 
 export const DEFAULTS: PlannerFilters = {
-  date: DEFAULT_DATE, budget: 5, airport: null, risk: 'all', show: 'all', veryShort: true, q: '', sort: 'day_rank', order: 'asc', page: 1, turn: null,
+  mode: 'add', date: DEFAULT_DATE, budget: 5, airport: null, risk: 'all', show: 'all', veryShort: true, q: '', sort: 'day_rank', order: 'asc', page: 1, turn: null,
 };
 
 const pick = <T extends string | number>(allowed: readonly T[], raw: string | null, fallback: T): T =>
@@ -35,6 +37,7 @@ function parse(sp: URLSearchParams): PlannerFilters {
   const date = sp.get('date');
   const page = Number(sp.get('page'));
   return {
+    mode: sp.get('mode') === 'reallocate' ? 'reallocate' : 'add',
     date: date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : DEFAULTS.date,
     budget: pick(PLANNER_BUDGETS, sp.get('budget'), DEFAULTS.budget),
     airport: /^[A-Z]{3}$/.test(sp.get('airport') ?? '') ? sp.get('airport') : null,
@@ -51,6 +54,7 @@ function parse(sp: URLSearchParams): PlannerFilters {
 
 function serialise(f: PlannerFilters): URLSearchParams {
   const out = new URLSearchParams();
+  if (f.mode !== 'add') out.set('mode', f.mode);
   out.set('date', f.date);                                   // always present, so links show the day
   if (f.budget !== DEFAULTS.budget) out.set('budget', String(f.budget));
   if (f.airport) out.set('airport', f.airport);

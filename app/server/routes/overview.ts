@@ -1,14 +1,16 @@
-// GET /api/overview?budget=5: headline KPIs, strategy comparison, monthly network trend, and the summary and
-// insights written from the KPI values (no numbers are hard-coded here).
+// GET /api/overview?budget=5: headline KPIs, the engine KPIs in both views, guardrails, monthly network trend, and the
+// summary and insights written from the KPI values (no numbers are hard-coded here).
 
 import {
-  type AirportImpact, type AirportImpactResponse, IMPACT_BANDS, IMPACT_COMPONENTS, type Insight, type Kpi, type MonthlyNetwork,
-  OVERVIEW_KPIS, type OverviewKpiName, type OverviewResponse, type StrategyResult,
+  type AirportImpact, type AirportImpactResponse, IMPACT_BANDS, IMPACT_COMPONENTS, type Insight, type Kpi, type KpiCatalogRow,
+  type MonthlyNetwork, OVERVIEW_KPIS, type OverviewKpiName, type OverviewResponse,
 } from '../../shared/api-types.ts';
-import { formatCompact, formatMinutes, formatMultiplier, formatNumber, formatPercent } from '../../shared/format.ts';
+import { formatCompact, formatMinutes, formatNumber, formatPercent, formatUsd } from '../../shared/format.ts';
+import { PLANNER_BUDGETS } from '../../shared/planner.ts';
 import { query, t } from '../db.ts';
 import { HttpError } from '../http.ts';
 import { optionalYearMonth } from '../params.ts';
+import { engineRows } from './kpis.ts';
 
 const DEFAULT_BUDGET = 5;
 const MAX_BUDGET = 60;
@@ -27,17 +29,17 @@ export async function getOverview(params: URLSearchParams): Promise<OverviewResp
   const budget = Number(params.get('budget'));
   const names = Object.fromEntries(OVERVIEW_KPIS.map((name, i) => [`k${i}`, name]));
 
-  const [kpiRows, strategy, monthly, runs] = await Promise.all([
+  // The engine KPIs exist for the planner budgets only; any other budget has no strategy rows
+  const planned = (PLANNER_BUDGETS as readonly number[]).includes(budget);
+  const [kpiRows, engine, catalog, monthly, runs] = await Promise.all([
     query<Kpi & { budget_scenario: number | null }>(
       `SELECT kpi_name, value, unit, period, definition, budget_scenario FROM ${t('gold_kpi_headline')}
        WHERE kpi_name IN (${Object.keys(names).map((k) => `:${k}`).join(', ')})`,
       names,
     ),
-    query<StrategyResult>(
-      `SELECT strategy, day_type, absorbed_per_100_added, absorbed_min, engine_vs_this FROM ${t('gold_sim_strategy')}
-       WHERE budget_scenario = :budget AND day_type IN ('normal days', 'disruption days') AND strategy <> 'No buffer'
-       ORDER BY strategy, day_type`,
-      { budget },
+    planned ? engineRows({ budget, day_type: 'all days', evaluator: 'both', mode: 'all' }) : Promise.resolve([]),
+    query<KpiCatalogRow>(
+      `SELECT engine, level, kpi_name, kpi_label, target, value_v1, value_v2, target_met FROM ${t('gold_kpi_catalog')}`,
     ),
     query<MonthlyNetwork>(
       `SELECT year_month,
@@ -54,14 +56,15 @@ export async function getOverview(params: URLSearchParams): Promise<OverviewResp
 
   const kpis = Object.fromEntries(OVERVIEW_KPIS.map((name) => [name, null])) as Record<OverviewKpiName, Kpi | null>;
   for (const { budget_scenario: _, ...row } of kpiRows) kpis[row.kpi_name as OverviewKpiName] = row;
-  const kpiBudget = kpiRows.find((r) => r.kpi_name === 'engine_uplift_vs_even')?.budget_scenario ?? null;
+  const kpiBudget = kpiRows.find((r) => r.kpi_name === 'engine_prevented_per_100')?.budget_scenario ?? null;
 
   return {
     kpis,
-    strategy,
+    engine_kpis: engine,
+    guardrails: catalog.filter((r) => r.level === 'Guardrail'),
     monthly,
     summary: buildSummary(kpis, kpiBudget),
-    insights: buildInsights(kpis, kpiBudget),
+    insights: buildInsights(kpis, catalog),
     context: { budget, kpi_budget: kpiBudget, test_period: runs[0]?.test_period ?? null, run_id: runs[0]?.run_id ?? null },
   };
 }
@@ -211,59 +214,65 @@ export function scoreAirports(rows: Omit<AirportImpact, 'network_knock_on_share'
 
 type Kpis = Record<OverviewKpiName, Kpi | null>;
 const v = (kpis: Kpis, name: OverviewKpiName): number | null => kpis[name]?.value ?? null;
-const budgetText = (b: number | null) => (b === null ? 'the same' : `${formatNumber(b)} extra`);
+const budgetText = (b: number | null) => (b === null ? 'the main budget of' : `${formatNumber(b)} extra`);
+const v1 = (catalog: KpiCatalogRow[], name: string) => catalog.find((r) => r.kpi_name === name)?.value_v1 ?? null;
+/** "11.3–52.2": a value in the curve view to the model view. */
+const range = (a: number | null, b: number | null, fmt: (x: number | null) => string) => `${fmt(a)}–${fmt(b)}`;
 
 export function buildSummary(kpis: Kpis, kpiBudget: number | null): string {
   return [
     `Across ${formatCompact(v(kpis, 'scheduled_flights'))} flights, ${formatPercent(v(kpis, 'late_arrival_rate'))} arrived 15+ minutes late.`,
-    `Below about ${formatNumber(v(kpis, 'absorption_threshold'))} minutes of ground time almost all inbound delay passes to the next flight.`,
-    `With ${budgetText(kpiBudget)} minutes of buffer per turnaround, the engine absorbs ${formatMultiplier(v(kpis, 'engine_uplift_vs_even'))} as much delay as spreading it evenly.`,
+    `With ${budgetText(kpiBudget)} minutes of buffer per turnaround, the engine prevents ${range(v(kpis, 'engine_prevented_per_100'), v(kpis, 'engine_prevented_per_100_resp'), (x) => formatNumber(x, 1))} minutes of delay per 100 buffer minutes across each aircraft's day (curve view to model view).`,
+    `Moving minutes from long sits to risky stops is worth ${range(v(kpis, 'realloc_net_value_usd'), v(kpis, 'realloc_net_value_usd_resp'), (x) => formatUsd(x))} with no buffer added.`,
   ].join(' ');
 }
 
-export function buildInsights(kpis: Kpis, kpiBudget: number | null): Insight[] {
+export function buildInsights(kpis: Kpis, catalog: KpiCatalogRow[]): Insight[] {
   const threshold = v(kpis, 'absorption_threshold');
   const thresholdText = threshold === null ? 'ground-time' : `${formatNumber(threshold)}-minute`;
+  const usd = (x: number | null) => formatUsd(x, false);
   return [
     {
       id: 'threshold',
       title: `The ${thresholdText} rule`,
-      body: 'Below it, almost all delay passes on.',
+      body: 'Below it, almost all inbound delay passes to the next flight.',
       metric: formatMinutes(threshold),
       metric_label: 'of ground time',
       source: 'Delay propagation',
     },
     {
-      id: 'buildup',
-      title: 'Delay snowballs through the day',
-      body: `Later flights leave ${formatMinutes(v(kpis, 'delay_buildup'), 1)} later.`,
-      metric: `+${formatMinutes(v(kpis, 'delay_buildup'))}`,
-      metric_label: '4th+ vs 1st',
-      source: 'Data',
+      id: 'placement',
+      title: 'Placement beats volume',
+      body: `Model view ${formatNumber(v(kpis, 'engine_prevented_per_100_resp'), 1)} per 100 min (v1 ${formatNumber(v(kpis, 'engine_v1_prevented_per_100_resp'), 1)}); `
+        + `worst case across both views ${formatPercent(v(kpis, 'engine_robustness'), 0)} of the best strategy (v1 ${formatPercent(v1(catalog, 'engine_robustness'), 0)}).`,
+      metric: formatPercent(v(kpis, 'engine_robustness'), 0),
+      metric_label: 'robustness, worst case',
+      source: 'Buffer engine',
+    },
+    {
+      id: 'realloc',
+      title: 'Reallocation pays under both views',
+      body: `${formatNumber(v(kpis, 'realloc_minutes_moved'))} min moved from long sits to risky stops; nothing added.`,
+      metric: range(v(kpis, 'realloc_net_value_usd'), v(kpis, 'realloc_net_value_usd_resp'), (x) => formatUsd(x)),
+      metric_label: 'net value, curve – model view',
+      source: 'Buffer engine',
+    },
+    {
+      id: 'break_even',
+      title: 'Adding buffer pays only when it is cheap',
+      body: `Break-even ${range(v(kpis, 'engine_break_even_buffer_cost_usd'), v(kpis, 'engine_break_even_buffer_cost_usd_resp'), usd)} per ground minute; `
+        + `assumed cost ${usd(v(kpis, 'cost_buffer_min_usd'))}.`,
+      metric: range(v(kpis, 'engine_break_even_buffer_cost_usd'), v(kpis, 'engine_break_even_buffer_cost_usd_resp'), (x) => formatUsd(x, false)),
+      metric_label: 'break-even, curve – model view',
+      source: 'Buffer engine',
     },
     {
       id: 'risk',
       title: 'Risk is visible in the timetable',
-      body: `Riskiest tenth late ${formatPercent(v(kpis, 'top_decile_late_rate'), 0)}, safest ${formatPercent(v(kpis, 'bottom_decile_late_rate'), 0)}.`,
-      metric: `AUC ${formatNumber(v(kpis, 'late_warning_auc'), 2)}`,
-      metric_label: `baseline ${formatNumber(v(kpis, 'late_warning_auc_baseline'), 2)}`,
+      body: `The riskiest 20% of turnarounds hold ${formatPercent(v(kpis, 'top20_capture'), 0)} of late departures.`,
+      metric: `AUC ${formatNumber(v(kpis, 'late_warning_auc'), 3)}`,
+      metric_label: `v1 ${formatNumber(v(kpis, 'late_warning_auc_v1'), 3)}`,
       source: 'Prediction engine',
-    },
-    {
-      id: 'placement',
-      title: 'Placement beats volume',
-      body: `vs even spread; 95% range ${formatNumber(v(kpis, 'engine_uplift_vs_even_ci_low'), 2)}–${formatNumber(v(kpis, 'engine_uplift_vs_even_ci_high'), 2)}.`,
-      metric: formatMultiplier(v(kpis, 'engine_uplift_vs_even')),
-      metric_label: `${formatPercent(v(kpis, 'engine_share_of_hindsight'), 0)} of hindsight`,
-      source: 'Optimisation engine',
-    },
-    {
-      id: 'lever',
-      title: 'Buffer is a small lever',
-      body: `Removes ${formatPercent(v(kpis, 'engine_pct_removed'))} of the delay passed on.`,
-      metric: formatPercent(v(kpis, 'engine_pct_removed')),
-      metric_label: kpiBudget === null ? 'engine buffer' : `at ${formatNumber(kpiBudget)} min buffer`,
-      source: 'Optimisation engine',
     },
   ];
 }

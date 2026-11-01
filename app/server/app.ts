@@ -14,6 +14,7 @@ import * as aircraftDay from './routes/aircraftDay.ts';
 import * as airports from './routes/airports.ts';
 import * as propagation from './routes/propagation.ts';
 import * as datasets from './routes/datasets.ts';
+import * as kpis from './routes/kpis.ts';
 import * as planner from './routes/planner.ts';
 import * as risk from './routes/risk.ts';
 import * as simulator from './routes/simulator.ts';
@@ -51,6 +52,7 @@ export function createApiHandler(config: Config, source: DataSource): ApiHandler
     { path: 'planner/turnarounds', load: planner.getTurnarounds, params: planner.turnaroundsParams },
     { path: 'planner/turnaround/:turn_id', load: planner.getDetail, params: planner.detailParams },
     { path: 'planner/airports', load: planner.getAirports, params: planner.airportsParams },
+    { path: 'planner/reallocation', load: planner.getReallocation, params: planner.reallocationParams },
     { path: 'planner/export', load: planner.getExport, params: planner.exportParams, csv: true },
     { path: 'aircraft-day/aircraft', load: aircraftDay.getAircraftList, params: aircraftDay.listParams },
     { path: 'aircraft-day', load: aircraftDay.getAircraftDay, params: aircraftDay.dayParams },
@@ -72,10 +74,15 @@ export function createApiHandler(config: Config, source: DataSource): ApiHandler
     { path: 'airports/:code/hourly', load: airports.getHourly, params: airports.codeParams },
     { path: 'airports/:code/buffer', load: airports.getBuffer, params: airports.bufferParams },
     { path: 'propagation/curve', load: propagation.getCurve },
+    { path: 'propagation/segment-curves', load: () => propagation.getSegmentCurves() },
     { path: 'propagation/segments', load: propagation.getSegments, params: propagation.segmentParams },
     { path: 'propagation/by-leg', load: propagation.getByLeg, params: propagation.legParams },
     { path: 'propagation/kpis', load: propagation.getKpis },
     { path: 'propagation/calculate', load: propagation.getCalculate, params: propagation.calculateParams },
+    { path: 'kpis/catalog', load: () => kpis.getCatalog() },
+    { path: 'kpis/engine', load: kpis.getEngine, params: kpis.engineParams },
+    { path: 'kpis/costs', load: () => kpis.getCosts() },
+    { path: 'kpis/net-value', load: kpis.getNetValue, params: kpis.netValueParams },
     // The list caches its parts itself (sample tables are looked for again while none are found)
     { path: 'datasets', load: () => datasets.getDatasets(), cache: false },
     { path: 'datasets/:name/schema', load: datasets.getSchema, params: datasets.nameParams },

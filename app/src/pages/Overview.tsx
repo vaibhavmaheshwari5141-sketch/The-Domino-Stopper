@@ -18,7 +18,7 @@ const BUDGET = 5;   // extra minutes per turnaround for the strategy comparison 
 type Tab = 'map' | 'strategy' | 'monthly';
 const TABS: { value: Tab; label: string }[] = [
   { value: 'map', label: 'Airport map' },
-  { value: 'strategy', label: 'Buffer strategies' },
+  { value: 'strategy', label: 'Two views' },
   { value: 'monthly', label: 'Monthly trend' },
 ];
 const TAB_KEY = 'ds_overview_tab';     // remembered per browser, a convenience only
@@ -56,7 +56,7 @@ export default function Overview() {
 
   return (
     <div className="flex flex-col gap-4 fit:grid fit:h-full fit:grid-rows-[auto_auto_minmax(0,1fr)]">
-      <KpiRibbon kpis={data?.kpis} />
+      <KpiRibbon kpis={data?.kpis} guardrails={data?.guardrails} />
 
       <SummaryBanner summary={data?.summary} />
 
@@ -89,7 +89,7 @@ export default function Overview() {
               {tab === 'map' ? (
                 <AirportMap budget={BUDGET} focus={focus} />
               ) : data ? (
-                tab === 'strategy' ? <StrategyChart rows={data.strategy} budget={data.context.budget} /> : <MonthlyChart rows={data.monthly} />
+                tab === 'strategy' ? <StrategyChart rows={data.engine_kpis} budget={data.context.budget} /> : <MonthlyChart rows={data.monthly} />
               ) : (
                 <span className="skeleton block h-full" />
               )}

@@ -30,9 +30,11 @@ beforeAll(async () => {
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 describe('simulator/strategies and simulator/sweep', () => {
-  it('returns the five strategies in display order, without "No buffer", and the replay period', async () => {
+  it('returns every strategy the data holds in display order, without "No buffer", and the replay period', async () => {
     const r = await json<SimStrategiesResponse>('strategies?budget=5&day_type=all%20days');
-    expect(r.rows.map((x) => x.strategy)).toEqual(['Spread evenly', 'Shortest first', 'Riskiest first', 'Engine (our method)', 'Hindsight (not possible)']);
+    expect(r.rows.map((x) => x.strategy)).toEqual(['Spread evenly', 'Shortest first', 'Riskiest first', 'Engine (our method)',
+      'Engine: reallocate (no added buffer)', 'Hindsight (not possible)']);
+    expect(r.rows.map((x) => x.mode)).toEqual(['add', 'add', 'add', 'add', 'reallocate', 'add']);
     const engine = r.rows[3];
     expect(engine).toMatchObject({ added_min: 5000, absorbed_min: 600, pct_removed: 6, absorbed_per_100_added: 12, late_avoided_per_1000: 6, engine_vs_this: null });
     expect(r.rows[0].engine_vs_this).toBe(4);
@@ -50,8 +52,8 @@ describe('simulator/strategies and simulator/sweep', () => {
 
   it('sweeps every strategy over every budget, budget first', async () => {
     const s = await json<SimSweepResponse>('sweep?day_type=all%20days');
-    expect(s.rows).toHaveLength(10);
-    expect(s.rows.slice(0, 5).every((x) => x.budget_scenario === 5)).toBe(true);
+    expect(s.rows).toHaveLength(12);
+    expect(s.rows.slice(0, 6).every((x) => x.budget_scenario === 5)).toBe(true);
     expect(s.rows.map((x) => x.strategy).slice(0, 2)).toEqual(['Spread evenly', 'Shortest first']);
   });
 });
@@ -96,8 +98,13 @@ describe('simulator/allocation', () => {
 });
 
 it('refuses values outside the allowed lists', async () => {
-  for (const path of ['strategies?budget=3', `strategies?day_type=weekends`, `allocation?grouping=Region`, `daily?strategies=${enc('No buffer')}`,
-    `daily?strategies=${enc('Engine (our method),Magic')}`, 'sweep?day_type=all']) {
+  for (const path of ['strategies?budget=3', `strategies?day_type=weekends`, `allocation?grouping=Region`, `daily?strategies=${enc("Engine'; DROP")}`,
+    `daily?strategies=${enc(Array.from({ length: 13 }, (_, i) => `S${i}`).join(','))}`, 'sweep?day_type=all']) {
     expect((await get(path)).status, path).toBe(400);
   }
+});
+
+it('reads strategy names from the data: unknown names return no rows, and "No buffer" is never returned', async () => {
+  const r = await json<SimDailyResponse>(`daily?strategies=${enc('Engine (our method),Magic,No buffer')}`);
+  expect(new Set(r.daily.map((d) => d.strategy))).toEqual(new Set(['Engine (our method)']));
 });

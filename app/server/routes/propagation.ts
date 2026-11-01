@@ -3,7 +3,7 @@
 
 import {
   type DelayByLeg, type Kpi, LEG_PERIODS, PROPAGATION_KPIS, type CurveBand, type PropagationByLeg, type PropagationCurve,
-  type PropagationKpis, type PropagationSegments, SEGMENT_TYPES, type SegmentBand,
+  type PropagationKpis, type PropagationSegments, SEGMENT_TYPES, type SegmentBand, type SegmentCurves,
 } from '../../shared/api-types.ts';
 import { formatMinutes, formatNumber } from '../../shared/format.ts';
 import { parseCurve } from './planner.ts';
@@ -15,6 +15,12 @@ import { oneOf } from '../params.ts';
 
 const FITTED = 'fitted%';                  // curve_type "fitted_curve (training period)"
 const SEGMENT = 'segment%';                // curve_type "segment (all periods)"
+const V2_SEGMENT = 'v2 segment%';          // curve_type "v2 segment curve (training period)": one smoothed curve per segment
+/** The calculator's `curve` value for the single (v1) curve; any other value names a v2 segment. */
+export const SINGLE_CURVE = 'v1';
+/** v2 segments in display order; anything else follows, alphabetically. */
+const V2_ORDER = ['All turnarounds', 'Ten busiest | Morning', 'Ten busiest | Afternoon', 'Ten busiest | Evening',
+  'Other airports | Morning', 'Other airports | Afternoon', 'Other airports | Evening'];
 
 /** Display order of known segments; anything else follows, alphabetically. */
 const SEGMENT_ORDER = ['All', 'Ten busiest', 'Other airports', 'Morning (05-11)', 'Afternoon (12-16)', 'Evening (17-23)',
@@ -43,6 +49,29 @@ async function kpiRows(): Promise<Record<string, Kpi>> {
   return Object.fromEntries(rows.map((r) => [r.kpi_name, r]));
 }
 
+/** Engine v2's segment curves. sg_band holds the ground time ("0", "5", ... "300") as text, so it is cast here. */
+const segmentCurves = cached('propagation/segment-curves', 600, async (): Promise<SegmentCurves> => {
+  const rows = await query<{ segment: string; ground_min: number | null; pass_through: number | null; curve_version: string | null }>(
+    `SELECT segment, CAST(sg_band AS DOUBLE) AS ground_min, pass_through_smoothed AS pass_through, curve_version
+     FROM ${t('gold_passthrough_curve')} WHERE curve_type LIKE :v2`,
+    { v2: V2_SEGMENT },
+  );
+  const bySegment = new Map<string, { ground_min: number; pass_through: number }[]>();
+  for (const r of rows) {
+    if (r.ground_min === null || r.pass_through === null) continue;
+    bySegment.set(r.segment, [...(bySegment.get(r.segment) ?? []), { ground_min: r.ground_min, pass_through: r.pass_through }]);
+  }
+  const rank = (s: string) => (V2_ORDER.includes(s) ? V2_ORDER.indexOf(s) : V2_ORDER.length);
+  return {
+    segments: [...bySegment]
+      .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+      .map(([segment, points]) => ({ segment, points: points.sort((a, b) => a.ground_min - b.ground_min) })),
+    curve_version: rows[0]?.curve_version ?? null,
+  };
+});
+
+export const getSegmentCurves = () => segmentCurves(new URLSearchParams());
+
 // ---- parameters ----------------------------------------------------------------------------------------------------
 
 export const segmentParams = (p: URLSearchParams) =>
@@ -60,10 +89,18 @@ function clampedNumber(p: URLSearchParams, key: keyof typeof CALC_LIMITS): numbe
   return Math.round(Math.min(max, Math.max(min, n)) * 10) / 10;
 }
 
+/** "v1" (the single curve) or a v2 segment name such as "Ten busiest | Morning" (letters, spaces and "|" only). */
+function curveParam(p: URLSearchParams): string {
+  const v = p.get('curve')?.trim() || SINGLE_CURVE;
+  if (!/^[A-Za-z0-9 |]{1,40}$/.test(v)) throw new HttpError(400, 'curve must be "v1" or a segment name such as "Ten busiest | Morning"');
+  return v;
+}
+
 export const calculateParams = (p: URLSearchParams) => new URLSearchParams({
   ground_min: String(clampedNumber(p, 'ground_min')),
   inbound_delay_min: String(clampedNumber(p, 'inbound_delay_min')),
   extra_min: String(clampedNumber(p, 'extra_min')),
+  curve: curveParam(p),
 });
 
 // ---- endpoints -----------------------------------------------------------------------------------------------------
@@ -140,8 +177,16 @@ export async function getKpis(): Promise<PropagationKpis> {
 }
 
 export async function getCalculate(p: URLSearchParams): Promise<AbsorptionResult> {
-  const { points } = await curvePoints(new URLSearchParams());
-  if (!points.length) throw new HttpError(503, 'gold_engine_run_log has no curve_points; run notebook 08 first');
+  const curve = p.get('curve') ?? SINGLE_CURVE;
+  let points: { ground_min: number; pass_through: number }[];
+  if (curve === SINGLE_CURVE) {
+    points = (await curvePoints(new URLSearchParams())).points;
+    if (!points.length) throw new HttpError(503, 'gold_engine_run_log has no curve_points; run notebook 08 first');
+  } else {
+    const found = (await getSegmentCurves()).segments.find((s) => s.segment === curve);
+    if (!found) throw new HttpError(404, `No v2 segment curve named "${curve}"`);
+    points = found.points;
+  }
   return calculateAbsorption(points, {
     ground_min: Number(p.get('ground_min')),
     inbound_delay_min: Number(p.get('inbound_delay_min')),

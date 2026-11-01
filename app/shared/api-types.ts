@@ -1,5 +1,7 @@
 // Response shapes of the API. Imported by the server (server/) and by the React app (src/lib/api.ts).
 
+import type { EngineMode, Evaluator, EvaluatorChoice } from './kpis.ts';
+
 export type DataMode = 'databricks' | 'local';
 
 export interface HealthResponse {
@@ -46,10 +48,11 @@ export interface ErrorResponse {
 
 /** The gold_kpi_headline rows the Overview page uses. */
 export const OVERVIEW_KPIS = [
-  'scheduled_flights', 'late_arrival_rate', 'absorption_threshold', 'late_warning_auc', 'late_warning_auc_baseline',
-  'engine_uplift_vs_even', 'engine_uplift_vs_even_ci_low', 'engine_uplift_vs_even_ci_high', 'engine_late_avoided_per_1000',
-  'engine_pct_removed', 'engine_share_of_hindsight', 'top_decile_late_rate', 'bottom_decile_late_rate', 'delay_buildup',
-  'disruption_days', 'turnarounds',
+  'scheduled_flights', 'late_arrival_rate', 'absorption_threshold', 'late_warning_auc', 'late_warning_auc_v1', 'top20_capture',
+  'engine_prevented_per_100', 'engine_prevented_per_100_resp', 'engine_v1_prevented_per_100', 'engine_v1_prevented_per_100_resp',
+  'engine_otp_change_pp', 'engine_otp_change_pp_resp', 'engine_robustness', 'engine_break_even_buffer_cost_usd',
+  'engine_break_even_buffer_cost_usd_resp', 'realloc_minutes_moved', 'realloc_net_value_usd', 'realloc_net_value_usd_resp',
+  'guardrail_eligible_share', 'guardrail_max_airport_share', 'cost_delay_min_usd', 'cost_buffer_min_usd', 'delay_buildup',
 ] as const;
 
 export type OverviewKpiName = (typeof OVERVIEW_KPIS)[number];
@@ -63,15 +66,6 @@ export interface Kpi {
   definition: string | null;
 }
 
-/** One row of gold_sim_strategy (normal or disruption days, one budget). */
-export interface StrategyResult {
-  strategy: string;
-  day_type: 'normal days' | 'disruption days';
-  absorbed_per_100_added: number | null;
-  absorbed_min: number | null;
-  engine_vs_this: number | null;
-}
-
 /** gold_network_daily grouped by month; rates and delays weighted by operated flights. */
 export interface MonthlyNetwork {
   year_month: string;
@@ -81,7 +75,7 @@ export interface MonthlyNetwork {
   disruption_days: number;
 }
 
-export type InsightSource = 'Prediction engine' | 'Optimisation engine' | 'Delay propagation' | 'Data';
+export type InsightSource = 'Prediction engine' | 'Buffer engine' | 'Delay propagation' | 'Data';
 
 export interface Insight {
   id: string;
@@ -95,7 +89,10 @@ export interface Insight {
 export interface OverviewResponse {
   /** Every name in OVERVIEW_KPIS; null when the table has no such row. */
   kpis: Record<OverviewKpiName, Kpi | null>;
-  strategy: StrategyResult[];
+  /** gold_engine_kpis at the budget, all days, both views (one row per strategy and view). */
+  engine_kpis: EngineKpiRow[];
+  /** The Guardrail rows of gold_kpi_catalog. */
+  guardrails: KpiCatalogRow[];
   monthly: MonthlyNetwork[];
   summary: string;
   insights: Insight[];
@@ -233,8 +230,16 @@ export interface PlannerRow {
   new_ground_min: number | null;
   expected_absorbed_min: number | null;
   reason_code: string | null;
+  /** Segment of the engine v2 curve, e.g. "Ten busiest | Morning". */
+  segment: string | null;
+  /** 1 minute prevented here is worth about this many minutes across the aircraft's day. */
+  chain_multiplier: number | null;
+  protects_later_flights: boolean;
   actual_inbound_delay_min: number | null;
+  /** Minutes prevented in the 2026 replay through the aircraft's day, curve view. */
   realised_absorbed_min: number | null;
+  /** Same, model view (main budget only; null otherwise). */
+  realised_absorbed_resp_min: number | null;
   late_avoided_flag: boolean;
 }
 
@@ -260,6 +265,7 @@ export interface PlannerBudgetOption {
 export interface PlannerDetail {
   turnaround: PlannerRow & {
     budget_scenario: number;
+    eligible_flag: boolean | null;
     sched_inbound_arr_utc: string | null;
     leg_of_day: number | null;
     is_top10_airport: boolean;
@@ -274,7 +280,9 @@ export interface PlannerDetail {
     curve_version: string | null;
   };
   budgets: PlannerBudgetOption[];
+  /** The pass-through curve the engine used here: the turnaround's v2 segment curve, or the single curve. */
   curve: { ground_min: number; pass_through: number }[];
+  curve_label: string;
   /** Share of the day's turnarounds with a late chance at least this high. */
   day_risk_share: number | null;
   reason_sentence: string;
@@ -285,6 +293,49 @@ export interface PlannerDetail {
 export interface PlannerAirport {
   airport: string;
   turnarounds: number;
+}
+
+/** One turnaround that gives or receives minutes in reallocate mode (gold_buffer_reallocation, main budget). */
+export interface ReallocationRow {
+  turn_id: string;
+  flight_date: string;
+  tail_number: string;
+  airport: string;
+  role: 'receives' | 'gives';
+  /** Minutes moved: + received, - given. */
+  change_min: number;
+  current_ground_min: number | null;
+  new_ground_min: number | null;
+  /** Expected change in delay prevented (midpoint of the two views); negative where minutes are given away. */
+  expected_change_min: number | null;
+  realised_absorbed_min: number | null;
+  realised_absorbed_resp_min: number | null;
+  inbound_from: string | null;
+  outbound_to: string | null;
+  inbound_flight_no: number | null;
+  outbound_flight_no: number | null;
+  sched_outbound_dep_utc: string | null;
+  risk_band: string | null;
+  p_late15: number | null;
+}
+
+/** GET /api/planner/reallocation?date=&airport=&tail= */
+export interface ReallocationResponse {
+  date: string;
+  airport: string | null;
+  tail: string | null;
+  budget: number;
+  rows: ReallocationRow[];
+  summary: {
+    aircraft: number;
+    receiving: number;
+    giving: number;
+    minutes_moved: number;
+    net_added_min: number;
+    expected_prevented_min: number;
+    realised_prevented_min: number;
+    realised_prevented_resp_min: number;
+  };
 }
 
 // ---- Aircraft Day (/api/aircraft-day...) ---------------------------------------------------------------------------
@@ -350,6 +401,12 @@ export interface AircraftTurn {
   late_avoided_flag: boolean;
   reason_code: string | null;
   day_rank: number | null;
+  chain_multiplier: number | null;
+  protects_later_flights: boolean;
+  /** Reallocation plan (main budget): + minutes received, - minutes given, null when this stop is not involved. */
+  realloc_change_min: number | null;
+  realloc_expected_change_min: number | null;
+  realloc_realised_min: number | null;
 }
 
 /** The order to draw the chain in: flights and turnarounds alternate; a break marks a stop that does not connect. */
@@ -377,6 +434,15 @@ export interface AircraftDay {
     late_departures_avoided: number;
   };
   plan_sentence: string;
+  /** The reallocation plan for this aircraft (always the main budget). */
+  reallocation: {
+    budget: number;
+    minutes_moved: number;
+    receiving: number;
+    giving: number;
+    expected_change_min: number;
+    sentence: string;
+  };
 }
 
 // ---- Scenario Simulator (/api/simulator/...) -----------------------------------------------------------------------
@@ -398,6 +464,7 @@ export interface SimStrategyRow {
   engine_vs_this_ci95_low: number | null;
   engine_vs_this_ci95_high: number | null;
   share_of_hindsight: number | null;
+  mode: EngineMode | null;
 }
 
 /** GET /api/simulator/strategies */
@@ -559,6 +626,8 @@ export interface RiskTurnaround {
   sched_ground_min: number | null;
   risk_band: string | null;
   p_late15: number | null;
+  /** Late chance from prediction engine v1, for comparison. */
+  p_late15_v1: number | null;
   pred_inbound_delay_min: number | null;
   actual_inbound_delay_min: number | null;
   actual_outbound_delay_min: number | null;
@@ -684,6 +753,12 @@ export interface CurveBand {
   ci95_low: number | null;
   ci95_high: number | null;
   pass_through_smoothed: number | null;
+}
+
+/** GET /api/propagation/segment-curves: engine v2's smoothed curves, one per segment (training period). */
+export interface SegmentCurves {
+  segments: { segment: string; points: { ground_min: number; pass_through: number }[] }[];
+  curve_version: string | null;
 }
 
 /** GET /api/propagation/curve */
@@ -823,4 +898,108 @@ export interface DatasetProfile {
   sampled: boolean;
   note: string | null;
   columns: ColumnProfile[];
+}
+
+// ---- Engine v2 KPIs (/api/kpis/...) ------------------------------------------------------------------------------
+
+/** One row of gold_kpi_catalog: a KPI with its target and the v1 and v2 values. */
+export interface KpiCatalogRow {
+  engine: string;
+  level: string;
+  kpi_name: string;
+  kpi_label: string;
+  target: string | null;
+  value_v1: number | null;
+  value_v2: number | null;
+  target_met: boolean | null;
+}
+
+/** GET /api/kpis/catalog */
+export interface KpiCatalogResponse {
+  rows: KpiCatalogRow[];
+  /** The same rows grouped by engine, then level, in display order. */
+  groups: { engine: string; levels: { level: string; rows: KpiCatalogRow[] }[] }[];
+}
+
+/** One row of gold_engine_kpis: a strategy at one budget, day type and view. */
+export interface EngineKpiRow {
+  strategy: string;
+  mode: EngineMode;
+  budget_scenario: number;
+  evaluator: Evaluator;
+  day_type: string;
+  turnarounds: number;
+  added_min: number;
+  net_added_min: number;
+  prevented_min: number;
+  own_absorbed_min: number | null;
+  prevented_per_100: number | null;
+  /** A percentage, e.g. 2.69 */
+  pct_departure_delay_prevented: number | null;
+  late_departures_avoided: number | null;
+  late_avoided_per_1000: number | null;
+  otp_change_pp: number | null;
+  value_usd: number | null;
+  buffer_cost_usd: number | null;
+  net_value_usd: number | null;
+  eligible_share: number | null;
+  max_airport_share: number | null;
+  budget_respected: boolean | null;
+  /** Main budget, all days only. */
+  robustness_worst_case_share: number | null;
+}
+
+/** GET /api/kpis/engine */
+export interface EngineKpisResponse {
+  budget: number | 'all';
+  day_type: string;
+  evaluator: EvaluatorChoice;
+  mode: EngineMode | 'all';
+  rows: EngineKpiRow[];
+  /** Strategies in the rows, in display order. */
+  strategies: string[];
+}
+
+/** One row of gold_cost_assumptions (value is text, e.g. "98.41" or "20-150"). */
+export interface CostAssumption {
+  setting: string;
+  value: string | null;
+  unit: string | null;
+  description: string | null;
+  source: string | null;
+}
+
+/** GET /api/kpis/costs */
+export interface CostsResponse {
+  rows: CostAssumption[];
+  cost_delay_min_usd: number | null;
+  cost_buffer_min_usd: number | null;
+  airport_cap_share: number | null;
+  /** Planned ground time that can receive buffer, e.g. [20, 150]. */
+  eligible_ground_min: [number, number] | null;
+  limits: { min: number; max: number };
+}
+
+export interface NetValueRow {
+  strategy: string;
+  mode: EngineMode;
+  evaluator: Evaluator;
+  prevented_min: number;
+  added_min: number;
+  net_added_min: number;
+  value_usd: number;
+  buffer_cost_usd: number;
+  /** Negative when the buffer costs more than the delay it prevents (a real result). */
+  net_value_usd: number;
+  /** Adding buffer pays only below this cost per buffer minute; null when nothing is added. */
+  break_even_buffer_cost_usd: number | null;
+}
+
+/** GET /api/kpis/net-value?budget=5&cost_delay=98.41&cost_buffer=50.72 */
+export interface NetValueResponse {
+  budget: number;
+  day_type: string;
+  cost_delay_min_usd: number;
+  cost_buffer_min_usd: number;
+  rows: NetValueRow[];
 }

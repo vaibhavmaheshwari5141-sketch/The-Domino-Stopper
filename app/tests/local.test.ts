@@ -49,7 +49,7 @@ describe('API on stand-in data', () => {
     expect(res.status).toBe(200);
     expect(body.run).toMatchObject({ run_id: 'run-1', run_timestamp_utc: '2026-10-25T10:01:00', main_budget: 5, checks_total: 40 });
     expect(body.tables.map((r: { table_name: string }) => r.table_name))
-      .toEqual(['gold_buffer_recommendation', 'gold_dim_airport', 'gold_kpi_headline', 'gold_unknown']);
+      .toEqual(['gold_buffer_recommendation', 'gold_dim_airport', 'gold_engine_kpis', 'gold_kpi_headline', 'gold_unknown']);
     expect(body.tables[1].rows).toBeNull();
     expect(res.headers.get('netlify-cdn-cache-control')).toContain('max-age=600');
   });
@@ -68,27 +68,39 @@ describe('API on stand-in data', () => {
 });
 
 describe('GET /api/overview on stand-in data', () => {
-  it('returns KPIs, strategy rows, weighted monthly figures and text built from the KPIs', async () => {
+  it('returns KPIs, both views of the engine KPIs, guardrails, weighted monthly figures and text built from the KPIs', async () => {
     const res = await get('/api/overview?budget=5');
     expect(res.status).toBe(200);
     const body: OverviewResponse = await res.json();
 
-    expect(Object.keys(body).sort()).toEqual(['context', 'insights', 'kpis', 'monthly', 'strategy', 'summary']);
+    expect(Object.keys(body).sort()).toEqual(['context', 'engine_kpis', 'guardrails', 'insights', 'kpis', 'monthly', 'summary']);
     expect(body.kpis.late_warning_auc?.value).toBe(0.7);
-    expect(body.kpis.late_warning_auc_baseline).toBeNull();                 // missing row -> null, no crash
-    expect(body.strategy).toHaveLength(10);                                 // 5 strategies x 2 day types, no 'No buffer'
-    expect(body.strategy.some((r) => r.strategy === 'No buffer' || r.day_type !== 'normal days' && r.day_type !== 'disruption days')).toBe(false);
+    expect(body.kpis.engine_prevented_per_100_resp?.value).toBe(50);
+    // One row per strategy and view, all days only: 4 strategies x 2 views
+    expect(body.engine_kpis).toHaveLength(8);
+    expect(body.engine_kpis.every((r) => r.day_type === 'all days' && r.budget_scenario === 5)).toBe(true);
+    expect(body.engine_kpis.filter((r) => r.strategy === 'Engine (our method)').map((r) => [r.evaluator, r.prevented_per_100]))
+      .toEqual([['curve', 12], ['response model', 48]]);
+    expect(body.guardrails.map((g) => g.kpi_name).sort()).toEqual(['budget_respected', 'guardrail_eligible_share']);
     expect(body.monthly).toEqual([
       { year_month: '2026-01', late_arrival_rate: 0.35, avg_arrival_delay_min: 17.5, operated_flights: 400, disruption_days: 1 },
       { year_month: '2026-02', late_arrival_rate: 0.1, avg_arrival_delay_min: 5, operated_flights: 200, disruption_days: 0 },
     ]);
-    expect(body.summary).toBe('Across 1M flights, 25.0% arrived 15+ minutes late. Below about 60 minutes of ground time almost all '
-      + 'inbound delay passes to the next flight. With 5 extra minutes of buffer per turnaround, the engine absorbs 3.0x as much '
-      + 'delay as spreading it evenly.');
-    expect(body.insights.map((i) => i.id)).toEqual(['threshold', 'buildup', 'risk', 'placement', 'lever']);
+    expect(body.summary).toBe('Across 1M flights, 25.0% arrived 15+ minutes late. With 5 extra minutes of buffer per turnaround, the engine '
+      + "prevents 12.0–50.0 minutes of delay per 100 buffer minutes across each aircraft's day (curve view to model view). "
+      + 'Moving minutes from long sits to risky stops is worth $2M–$12.6M with no buffer added.');
+    expect(body.insights.map((i) => i.id)).toEqual(['threshold', 'placement', 'realloc', 'break_even', 'risk']);
     expect(body.insights[0].title).toBe('The 60-minute rule');
-    expect(body.insights[2].metric_label).toBe('baseline –');
+    expect(body.insights[1].body).toBe('Model view 50.0 per 100 min (v1 23.0); worst case across both views 85% of the best strategy (v1 39%).');
+    expect(body.insights[3].metric).toBe('$11.10–$51.40');
+    expect(body.insights[4]).toMatchObject({ metric: 'AUC 0.700', metric_label: 'v1 0.690' });
     expect(body.context).toEqual({ budget: 5, kpi_budget: 5, test_period: '2026-01-01 to 2026-08-31', run_id: 'run-1' });
+  });
+
+  it('returns no engine rows for a budget the engine did not plan, and null for a missing KPI', async () => {
+    const body: OverviewResponse = await (await get('/api/overview?budget=7')).json();
+    expect(body.engine_kpis).toEqual([]);
+    expect(body.kpis.engine_v1_prevented_per_100).not.toBeNull();
   });
 
   it('defaults to budget 5 and rejects invalid budgets', async () => {

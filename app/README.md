@@ -11,7 +11,7 @@ network schedule planner. All analysis runs in Databricks; the app only reads th
 Databricks (workspace.bufferengine)          This app (TypeScript only, no Python)
 ┌───────────────────────────────┐            ┌─────────────────────────────────────────────┐
 │ notebooks 01-08 build the     │   SQL over │ API: server/  (fixed, parameterised SELECTs) │
-│ 21 gold_* consumption tables  │◄───HTTPS───┤   runs as a Netlify Function in production, │
+│ 25 gold_* consumption tables  │◄───HTTPS───┤   runs as a Netlify Function in production, │
 │ and sample_* input tables     │  REST API  │   inside the Vite dev server locally        │
 │ SQL warehouse (serverless)    │            │                    ▲ /api/*                 │
 └───────────────────────────────┘            │ React app: src/    │ same origin, JSON       │
@@ -77,8 +77,15 @@ npm run dev          # app + API on http://localhost:5173
 
 - http://localhost:5173/api/health → `{"status": "ok", "data_mode": "databricks", "database_ok": true}`
 - http://localhost:5173/api/meta → latest engine run (`gold_engine_run_log`) and the table catalog (`gold_table_catalog`)
-- http://localhost:5173/api/overview?budget=5 → Overview page: headline KPIs (`gold_kpi_headline`), strategy comparison
-  (`gold_sim_strategy`), monthly network trend (`gold_network_daily`), and a summary and five insights written from the KPIs
+- http://localhost:5173/api/overview?budget=5 → Overview page: headline KPIs (`gold_kpi_headline`), every strategy in both views
+  (`gold_engine_kpis`, all days), the guardrails (`gold_kpi_catalog`), monthly network trend (`gold_network_daily`), and a
+  summary and five insights written from the KPIs
+- `/api/kpis/...` → engine v2 KPIs: `catalog` (`gold_kpi_catalog`, grouped by engine and level),
+  `engine?budget=5|all&day_type=all days&evaluator=curve|response model|both&mode=add|reallocate|all` (`gold_engine_kpis`; one
+  row per strategy and view, so a caller never adds the two views together), `costs` (`gold_cost_assumptions` plus the numbers
+  the page uses) and `net-value?budget=5[&day_type&cost_delay=98.41&cost_buffer=50.72]` (net value = prevented × cost per
+  delay minute − max(net added, 0) × cost per buffer minute, and the break-even buffer cost; costs from 0 to 500, the stored
+  assumptions when left out). The two views are explained in `shared/kpis.ts`.
 - `/api/overview/airports?budget=5[&from=2026-01&to=2026-08]` → Overview airport map (months optional and inclusive; the
   score is recomputed for the period): every airport in `gold_dim_airport` with its coordinates from
   `ref_airports_tz` (notebook 01, OurAirports), delay measures from `gold_airport_month` (all months), the engine plan from
@@ -89,7 +96,8 @@ npm run dev          # app + API on http://localhost:5173
   budget, paged on the server; `gold_buffer_plan_daily` for day totals):
   `dates?budget=5`, `summary?date=2026-03-15&budget=5[&airport=DFW]`, `airports?date=…`,
   `turnarounds?date=…&budget=…[&airport&risk_band&show&very_short&search&sort&order&limit&offset]`,
-  `turnaround/{turn_id}?budget=5` (detail, all budgets, pass-through curve) and `export?…` (CSV, up to 5,000 rows).
+  `turnaround/{turn_id}?budget=5` (detail, all budgets, the turnaround's v2 segment curve), `export?…` (CSV, up to 5,000 rows)
+  and `reallocation?date=…[&airport&tail]` (reallocate mode: `gold_buffer_reallocation` joined to `gold_ml_predictions`, main budget).
   Every parameter is checked against an allowed list (`server/params.ts`); anything else is refused with 400.
 - `/api/aircraft-day/aircraft?date=…&budget=5[&airport&search&limit&selected]` → aircraft flying that day, most buffer first;
   `/api/aircraft-day?tail=N156UW&date=2026-03-15&budget=5` → one aircraft's chain of flights and stops (404 with a message
@@ -97,7 +105,8 @@ npm run dev          # app + API on http://localhost:5173
 - `/api/simulator/...` → Scenario Simulator: `strategies?budget=5&day_type=all days`, `sweep?day_type=…`,
   `daily?budget=5&strategies=Engine (our method),Spread evenly` (with a monthly roll-up) and
   `allocation?budget=5&grouping=Inbound-risk fifth` (top 15 for `Airport`, with a sentence describing the pattern).
-  Budget, day type, grouping and strategy names are checked against allowed lists; "No buffer" is never returned.
+  Strategies come from the data (never a fixed list); names are checked for plain characters and "No buffer" is never
+  returned. These tables hold the curve view only; both views are in `/api/kpis/engine`.
 - `/api/risk/...` → Risk Forecast (`gold_ml_predictions` and the model tables): `summary?start=&end=&airport=`,
   `heatmap?start=&end=&metric=p_late15|pred_inbound_delay_min&top=20` (cells under 30 turnarounds come back empty),
   `trend?airport=`, `by-ground-time?airport=`, `model-quality`, `top-turnarounds?date=&airport=&limit=20` and `airports?start=&end=`.
@@ -108,9 +117,10 @@ npm run dev          # app + API on http://localhost:5173
   An unknown airport code gets a 404; a malformed one a 400. Monthly figures are combined as weighted averages.
 - `/api/propagation/...` → Delay Propagation (`gold_passthrough_curve`, `gold_delay_by_leg`, `gold_kpi_headline`,
   `gold_engine_run_log.curve_points`): `curve`, `segments?segment_type=Airport type|Time of day|Disruption|Period|All turnarounds|all`,
-  `by-leg?period=all|train|validate|test`, `kpis`, and `calculate?ground_min=60&inbound_delay_min=30&extra_min=15` (linear
-  interpolation on the smoothed curve; inputs are clamped to 0–300, 0–300 and 0–60 minutes, non-numbers get a 400).
-- `/api/datasets` → Input Data: the input samples (`sample_*`, found at run time) and the 21 gold tables, with row and
+  `by-leg?period=all|train|validate|test`, `kpis`, `segment-curves` (engine v2's seven smoothed curves) and
+  `calculate?ground_min=60&inbound_delay_min=30&extra_min=15[&curve=v1|Ten busiest | Morning]` (linear interpolation on the
+  chosen curve; inputs are clamped to 0–300, 0–300 and 0–60 minutes, non-numbers get a 400, an unknown segment a 404).
+- `/api/datasets` → Input Data: the input samples (`sample_*`, found at run time) and the 25 gold tables, with row and
   column counts (gold counts from `gold_table_catalog`). Per dataset: `{name}/schema`,
   `{name}/preview?limit=100&offset=0&sort=&order=asc&search=` (paged on the server, at most 500 rows; `sort` must be a
   column of the table; `search` is a case-insensitive "contains" over the text columns, passed as a parameter),

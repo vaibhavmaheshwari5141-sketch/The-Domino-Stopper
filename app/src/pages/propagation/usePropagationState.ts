@@ -7,7 +7,13 @@ import { CALC_LIMITS } from '../../../shared/propagation';
 export const SEGMENT_CHOICES = ['Airport type', 'Time of day', 'Disruption', 'Period'] as const satisfies readonly SegmentType[];
 export type SegmentChoice = (typeof SEGMENT_CHOICES)[number];
 
+/** The calculator's curve: "v1" (single curve) or a v2 segment such as "Ten busiest | Morning". */
+export const SINGLE_CURVE = 'v1';
+
 export interface PropagationState {
+  /** Curve chart: the single v1 curve, or the seven v2 segment curves. */
+  curves: 'v1' | 'v2';
+  calcCurve: string;
   seg: SegmentChoice;
   period: LegPeriod;
   ground: number;
@@ -25,7 +31,10 @@ function minutes(sp: URLSearchParams, key: string, limit: CalcKey): number {
 }
 
 function parse(sp: URLSearchParams): PropagationState {
+  const calc = sp.get('calc') ?? '';
   return {
+    curves: sp.get('curves') === 'v2' ? 'v2' : 'v1',
+    calcCurve: /^[A-Za-z0-9 |]{1,40}$/.test(calc) ? calc : SINGLE_CURVE,
     seg: SEGMENT_CHOICES.find((s) => s === sp.get('seg')) ?? 'Airport type',
     period: LEG_PERIODS.find((p) => p === sp.get('period')) ?? 'all',
     ground: minutes(sp, 'ground', 'ground_min'),
@@ -36,6 +45,8 @@ function parse(sp: URLSearchParams): PropagationState {
 
 function serialise(s: PropagationState): URLSearchParams {
   const out = new URLSearchParams();
+  if (s.curves !== 'v1') out.set('curves', s.curves);
+  if (s.calcCurve !== SINGLE_CURVE) out.set('calc', s.calcCurve);
   if (s.seg !== 'Airport type') out.set('seg', s.seg);
   if (s.period !== 'all') out.set('period', s.period);
   if (s.ground !== CALC_LIMITS.ground_min.fallback) out.set('ground', String(s.ground));

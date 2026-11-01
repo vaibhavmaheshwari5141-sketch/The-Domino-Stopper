@@ -1,5 +1,5 @@
 // Input Data endpoints (/api/datasets/...): browse the input sample tables (sample_*, found at run time) and the
-// 21 gold tables. Table names only come from t() after an allow-list check, column names only from the table's own
+// 25 gold tables. Table names only come from t() after an allow-list check, column names only from the table's own
 // schema, and the search text only goes in as a parameter. gold_buffer_recommendation has 1.7M rows, so every
 // endpoint pages, limits or samples on the server.
 

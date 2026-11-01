@@ -1,18 +1,18 @@
 import clsx from 'clsx';
-import { Gauge, Lightbulb, type LucideIcon, SlidersHorizontal, Target, Timer, TrendingUp } from 'lucide-react';
+import { ArrowLeftRight, BadgeDollarSign, Gauge, Lightbulb, type LucideIcon, Target, Timer } from 'lucide-react';
 import type { Insight, InsightSource } from '../../lib/api';
 
 const ICONS: Record<string, LucideIcon> = {
   threshold: Timer,
-  buildup: TrendingUp,
-  risk: Gauge,
   placement: Target,
-  lever: SlidersHorizontal,
+  realloc: ArrowLeftRight,
+  break_even: BadgeDollarSign,
+  risk: Gauge,
 };
 
 const TONE: Record<InsightSource, { circle: string; icon: string }> = {
   'Prediction engine': { circle: 'bg-teal-soft', icon: 'text-teal' },
-  'Optimisation engine': { circle: 'bg-amber-soft', icon: 'text-amber' },
+  'Buffer engine': { circle: 'bg-amber-soft', icon: 'text-amber' },
   'Delay propagation': { circle: 'bg-bg', icon: 'text-tarmac' },
   Data: { circle: 'bg-bg', icon: 'text-muted' },
 };

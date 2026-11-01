@@ -12,7 +12,7 @@ export default function DelayPropagation() {
   return (
     <div className="flex flex-col gap-4">
       <PropagationTiles />
-      <CurveChart />
+      <CurveChart curves={state.curves} onCurves={(curves) => update({ curves })} />
       <Calculator state={state} update={update} />
       <div className="grid grid-cols-1 gap-4 wide:grid-cols-2">
         <SegmentChart seg={state.seg} onSeg={(seg) => update({ seg })} />

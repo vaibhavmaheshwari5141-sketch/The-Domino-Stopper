@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { InfoTip } from '../../components/Tooltip';
 import type { PlannerSummary } from '../../lib/api';
 import { formatDayLong, formatNumber, formatPercent } from '../../lib/format';
+import { ESTIMATE_HELP } from '../../../shared/kpis';
 
 function Tile({ label, value, sub, tip, backtest, children }: {
   label: string; value: ReactNode; sub?: ReactNode; tip: string; backtest?: boolean; children?: ReactNode;
@@ -58,12 +59,13 @@ export function SummaryStrip({ summary }: { summary: PlannerSummary | undefined 
             <span className={clsx('block h-full rounded-full', usedShare > 1 ? 'bg-warning' : 'bg-amber')} style={{ width: `${Math.min(100, usedShare * 100)}%` }} />
           </span>
         </Tile>
-        <Tile label="Expected delay absorbed" value={<>{formatNumber(s.expected_absorbed_min, 1)}<span className="text-[13px] font-normal text-muted"> min</span></>}
-          sub="what the plan expects" tip="Minutes of knock-on delay the buffer is expected to stop, from the predicted delays and the pass-through curve." />
-        <Tile backtest label="Backtest: delay absorbed" value={<>{formatNumber(s.realised_absorbed_min, 1)}<span className="text-[13px] font-normal text-muted"> min</span></>}
-          sub="what really happened" tip="Minutes of knock-on delay the buffer would really have stopped, using the actual 2026 delays. Not known when the plan is made." />
-        <Tile backtest label="Backtest: late departures avoided" value={formatNumber(s.late_departures_avoided)}
-          sub="what really happened" tip="Departures that left 15+ minutes late in reality, and would have left on time with this buffer." />
+        <Tile label="Expected delay prevented" value={<>{formatNumber(s.expected_absorbed_min, 1)}<span className="text-[13px] font-normal text-muted"> min</span></>}
+          sub="midpoint of the two views"
+          tip="Minutes of delay the buffer is expected to prevent across each aircraft's day: the midpoint of the curve view and the model view, from the predicted delays." />
+        <Tile backtest label="Estimated with real 2026 delays" value={<>{formatNumber(s.realised_absorbed_min, 1)}<span className="text-[13px] font-normal text-muted"> min</span></>}
+          sub="delay prevented, curve view" tip={`Minutes of delay the buffer would have prevented across each aircraft's day with the actual 2026 delays (curve view). ${ESTIMATE_HELP}`} />
+        <Tile backtest label="Late departures avoided" value={formatNumber(s.late_departures_avoided)}
+          sub="estimated with real 2026 delays" tip={`Departures that left 15+ minutes late in reality, and would have left on time with this buffer. ${ESTIMATE_HELP}`} />
       </div>
     </div>
   );

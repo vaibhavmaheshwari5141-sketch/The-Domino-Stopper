@@ -1,5 +1,6 @@
-// Scenario Simulator endpoints (/api/simulator/...): five ways of placing the same buffer budget, replayed over the
-// test period. The "No buffer" reference row is left out of every answer.
+// Scenario Simulator endpoints (/api/simulator/...): ways of placing the same buffer budget, replayed over the test
+// period. The strategies are whatever the data holds; the "No buffer" reference row of older runs is left out.
+// gold_sim_strategy and gold_sim_daily hold the curve view only; both views are in gold_engine_kpis (/api/kpis/engine).
 
 import type {
   SimAllocationResponse, SimAllocationRow, SimDailyResponse, SimDailyRow, SimMonthlyRow, SimStrategiesResponse, SimStrategyRow,
@@ -7,7 +8,9 @@ import type {
 } from '../../shared/api-types.ts';
 import { formatPercent } from '../../shared/format.ts';
 import { PLANNER_BUDGETS } from '../../shared/planner.ts';
-import { DAY_TYPES, ENGINE, EVEN, GROUPINGS, GROUP_ORDER, type GroupingName, STRATEGY_NAMES } from '../../shared/simulator.ts';
+import {
+  DAY_TYPES, ENGINE, EVEN, GROUPINGS, GROUP_ORDER, type GroupingName, NO_BUFFER, STRATEGY_NAME, strategyOrder,
+} from '../../shared/simulator.ts';
 import { type Params, ident, query, t } from '../db.ts';
 import { HttpError } from '../http.ts';
 import { oneOf, oneOfNumber } from '../params.ts';
@@ -20,13 +23,19 @@ const normalised = (values: Record<string, string | number>) => new URLSearchPar
 const budgetParam = (p: URLSearchParams) => oneOfNumber(p, 'budget', PLANNER_BUDGETS, DEFAULT_BUDGET);
 const dayTypeParam = (p: URLSearchParams) => oneOf(p, 'day_type', DAY_TYPES, 'all days');
 
-/** Comma-separated strategy names, each checked against the five strategies; kept in display order. */
+const MAX_STRATEGIES = 12;
+
+/**
+ * Comma-separated strategy names (at most 12), each checked for plain characters; kept in display order. Names the
+ * data does not hold simply return no rows. Names only ever reach SQL as parameters.
+ */
 function strategiesParam(p: URLSearchParams): string[] {
   const raw = p.get('strategies');
   const asked = raw === null || raw.trim() === '' ? [ENGINE, EVEN] : raw.split(',').map((s) => s.trim()).filter(Boolean);
-  const unknown = asked.filter((s) => !STRATEGY_NAMES.includes(s));
-  if (unknown.length) throw new HttpError(400, `Unknown strategy: ${unknown.join(', ')}. Allowed: ${STRATEGY_NAMES.join(', ')}`);
-  return STRATEGY_NAMES.filter((s) => asked.includes(s));
+  const bad = asked.filter((s) => !STRATEGY_NAME.test(s));
+  if (bad.length) throw new HttpError(400, `Not a strategy name: ${bad.join(', ')}`);
+  if (asked.length > MAX_STRATEGIES) throw new HttpError(400, `At most ${MAX_STRATEGIES} strategies`);
+  return [...new Set(asked)].sort(strategyOrder);
 }
 
 export const strategiesParams = (p: URLSearchParams) => normalised({ budget: budgetParam(p), day_type: dayTypeParam(p) });
@@ -42,21 +51,20 @@ function inList(names: string[]): { sql: string; params: Params } {
 }
 
 const STRATEGY_COLUMNS = `strategy, budget_scenario, day_type, turnarounds, added_min, absorbed_min, pct_removed, absorbed_per_100_added,
-  late_avoided_per_1000, engine_vs_this, engine_vs_this_ci95_low, engine_vs_this_ci95_high, share_of_hindsight`;
+  late_avoided_per_1000, engine_vs_this, engine_vs_this_ci95_low, engine_vs_this_ci95_high, share_of_hindsight, mode`;
 
-const byStrategyOrder = (a: { strategy: string }, b: { strategy: string }) => STRATEGY_NAMES.indexOf(a.strategy) - STRATEGY_NAMES.indexOf(b.strategy);
+const byStrategyOrder = (a: { strategy: string }, b: { strategy: string }) => strategyOrder(a.strategy, b.strategy);
 
 // ---- endpoints -----------------------------------------------------------------------------------------------------
 
 export async function getStrategies(p: URLSearchParams): Promise<SimStrategiesResponse> {
   const budget = Number(p.get('budget'));
   const dayType = p.get('day_type')!;
-  const names = inList(STRATEGY_NAMES);
   const [rows, period] = await Promise.all([
     query<SimStrategyRow>(
       `SELECT ${STRATEGY_COLUMNS} FROM ${t('gold_sim_strategy')}
-       WHERE budget_scenario = :budget AND day_type = :day_type AND strategy IN (${names.sql})`,
-      { budget, day_type: dayType, ...names.params },
+       WHERE budget_scenario = :budget AND day_type = :day_type AND strategy <> :no_buffer`,
+      { budget, day_type: dayType, no_buffer: NO_BUFFER },
     ),
     query<{ days: number; disruption_days: number; first_day: string | null; last_day: string | null }>(
       `SELECT COUNT(DISTINCT flight_date) AS days,
@@ -74,11 +82,10 @@ export async function getStrategies(p: URLSearchParams): Promise<SimStrategiesRe
 
 export async function getSweep(p: URLSearchParams): Promise<SimSweepResponse> {
   const dayType = p.get('day_type')!;
-  const names = inList(STRATEGY_NAMES);
   const rows = await query<SimStrategyRow>(
     `SELECT ${STRATEGY_COLUMNS} FROM ${t('gold_sim_strategy')}
-     WHERE day_type = :day_type AND strategy IN (${names.sql}) ORDER BY budget_scenario`,
-    { day_type: dayType, ...names.params },
+     WHERE day_type = :day_type AND strategy <> :no_buffer ORDER BY budget_scenario`,
+    { day_type: dayType, no_buffer: NO_BUFFER },
   );
   return { day_type: dayType, rows: rows.sort((a, b) => a.budget_scenario - b.budget_scenario || byStrategyOrder(a, b)) };
 }
@@ -90,9 +97,9 @@ export async function getDaily(p: URLSearchParams): Promise<SimDailyResponse> {
   const daily = await query<SimDailyRow>(
     `SELECT flight_date, strategy, buffer_added_min, absorbed_min, late_departures_avoided,
             COALESCE(is_disruption_day, FALSE) AS is_disruption_day
-     FROM ${t('gold_sim_daily')} WHERE budget_scenario = :budget AND strategy IN (${names.sql})
+     FROM ${t('gold_sim_daily')} WHERE budget_scenario = :budget AND strategy IN (${names.sql}) AND strategy <> :no_buffer
      ORDER BY flight_date, strategy`,
-    { budget, ...names.params },
+    { budget, no_buffer: NO_BUFFER, ...names.params },
   );
 
   // Monthly roll-up in code (month keys from the ISO date), so the SQL stays the same on Databricks and DuckDB

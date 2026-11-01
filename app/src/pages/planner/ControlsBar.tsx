@@ -6,6 +6,7 @@ import { Toggle } from '../../components/Toggle';
 import { InfoTip } from '../../components/Tooltip';
 import { RISK_DOT } from '../../config/risk';
 import { buildUrl, type PlannerAirport, type PlannerDay } from '../../lib/api';
+import { MODE_HELP } from '../../../shared/kpis';
 import { PLANNER_BUDGETS, RISK_BANDS } from '../../../shared/planner';
 import { AirportSelect } from '../../components/AirportSelect';
 import { DatePicker } from '../../components/DatePicker';
@@ -37,24 +38,42 @@ export const ControlsBar = forwardRef<HTMLDivElement, Props>(function ControlsBa
   return (
     // -mt-5 / top-[-20px] cancel the content area padding, so the bar sits flush under the top bar while scrolling
     <div ref={ref} className="sticky top-[-20px] z-30 -mx-5 -mt-5 border-b bg-bg px-5 pb-3 pt-4">
-      <p className="mb-3 text-[13px] text-muted">
-        Recommended extra ground time for each turnaround on the selected day, from the prediction engine and the optimisation engine.
-      </p>
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <SegmentedControl
+          label="Mode"
+          value={filters.mode}
+          options={[{ value: 'add', label: 'Add buffer' }, { value: 'reallocate', label: 'Reallocate' }]}
+          onChange={(mode) => update({ mode, turn: null })}
+        />
+        <InfoTip label="About the modes" align="left">
+          <span className="mb-1 block">{MODE_HELP.add}</span>
+          <span className="block">{MODE_HELP.reallocate}</span>
+        </InfoTip>
+        <p className="text-[13px] text-muted">
+          {filters.mode === 'add'
+            ? 'Recommended extra ground time for each turnaround on the selected day, from the prediction engine and the optimisation engine.'
+            : "Minutes moved from long sits to risky stops within each aircraft's day. Nothing is added to the schedule."}
+        </p>
+      </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5">
         <DatePicker value={filters.date} days={days} onChange={(date) => update({ date, turn: null })} />
 
-        <div className="flex items-center gap-1.5">
-          <SegmentedControl
-            label="Buffer budget, minutes per turnaround"
-            value={filters.budget}
-            options={PLANNER_BUDGETS.map((b) => ({ value: b, label: <span className="num">{b}</span> }))}
-            onChange={(budget) => update({ budget })}
-          />
-          <span className="text-[13px] text-muted">min per turnaround</span>
-          <InfoTip label="About the buffer budget">
-            Average extra minutes per turnaround the airline is willing to add that day. Every turnaround can receive 0 to 30 minutes.
-          </InfoTip>
-        </div>
+        {filters.mode === 'add' ? (
+          <div className="flex items-center gap-1.5">
+            <SegmentedControl
+              label="Buffer budget, minutes per turnaround"
+              value={filters.budget}
+              options={PLANNER_BUDGETS.map((b) => ({ value: b, label: <span className="num">{b}</span> }))}
+              onChange={(budget) => update({ budget })}
+            />
+            <span className="text-[13px] text-muted">min per turnaround</span>
+            <InfoTip label="About the buffer budget">
+              Average extra minutes per turnaround the airline is willing to add that day. Every turnaround can receive 0 to 30 minutes.
+            </InfoTip>
+          </div>
+        ) : (
+          <span className="rounded-control bg-bg px-2 py-1 text-[12px] text-muted">Planned at the main budget, 5 min per turnaround</span>
+        )}
 
         <AirportSelect value={filters.airport} airports={airports} onChange={(airport) => update({ airport })} />
 
@@ -74,17 +93,19 @@ export const ControlsBar = forwardRef<HTMLDivElement, Props>(function ControlsBa
           )}
         </label>
 
-        <a
-          href={buildUrl('/api/planner/export', apiParams(filters, false))}
-          download
-          className="focus-ring ml-auto inline-flex h-8 items-center gap-1.5 rounded-control border bg-surface px-3 text-[13px] font-medium text-ink hover:bg-bg"
-        >
-          <Download size={15} className="text-muted" aria-hidden="true" />
-          Export CSV
-        </a>
+        {filters.mode === 'add' && (
+          <a
+            href={buildUrl('/api/planner/export', apiParams(filters, false))}
+            download
+            className="focus-ring ml-auto inline-flex h-8 items-center gap-1.5 rounded-control border bg-surface px-3 text-[13px] font-medium text-ink hover:bg-bg"
+          >
+            <Download size={15} className="text-muted" aria-hidden="true" />
+            Export CSV
+          </a>
+        )}
       </div>
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2.5">
+      {filters.mode === 'add' && <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2.5">
         <div role="radiogroup" aria-label="Risk band" className="flex items-center gap-1">
           {(['all', ...RISK_BANDS] as const).map((band) => {
             const active = filters.risk === band;
@@ -124,7 +145,7 @@ export const ControlsBar = forwardRef<HTMLDivElement, Props>(function ControlsBa
             Turnarounds planned at under 20 minutes. They are often aircraft swaps or timetable quirks rather than real turns.
           </InfoTip>
         </div>
-      </div>
+      </div>}
     </div>
   );
 });

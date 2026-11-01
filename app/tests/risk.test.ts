@@ -85,12 +85,13 @@ describe('risk/trend and risk/by-ground-time', () => {
 });
 
 describe('risk/model-quality', () => {
-  it('returns deciles, test and validate metrics and inputs for the two models, and a caption', async () => {
+  it('returns deciles, test metrics (v1, v2 and baselines) and inputs for the two models, and a caption', async () => {
     const q = await json<ModelQuality>('model-quality');
     expect(q.deciles).toHaveLength(40);
     expect(new Set(q.deciles.map((d) => d.model))).toEqual(new Set(['late_warning', 'inbound_risk']));
-    expect(q.metrics).toHaveLength(8);
-    expect(q.metrics.some((m) => m.period === 'train')).toBe(false);
+    expect(q.metrics).toHaveLength(10);
+    expect(q.metrics.every((m) => m.period === 'test')).toBe(true);
+    expect(q.metrics.filter((m) => m.predictor === 'LightGBM v1').map((m) => m.measure).sort()).toEqual(['AUC', 'Top20Capture']);
     expect(q.features.filter((f) => f.model === 'late_warning').map((f) => f.rank)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(q.decile_caption).toBe('The riskiest tenth was late 60% of the time; the safest 6%.');
   });

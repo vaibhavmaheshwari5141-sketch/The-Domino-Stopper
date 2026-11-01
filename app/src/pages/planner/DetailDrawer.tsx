@@ -5,6 +5,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { ErrorState } from '../../components/ErrorState';
 import { RiskChip } from '../../components/RiskChip';
 import { formatDayLong, formatNumber } from '../../lib/format';
+import { ESTIMATE_HELP } from '../../../shared/kpis';
 import { usePlannerDetail } from '../../lib/queries';
 import { FlightChain } from './FlightChain';
 import { PassThroughChart } from './PassThroughChart';
@@ -95,9 +96,19 @@ export function DetailDrawer({ turnId, budget, onClose, showAircraftLink = true 
                   <Stat label="Extra ground time" value={tr.recommended_extra_min > 0
                     ? <span className="text-amber">+{tr.recommended_extra_min} min</span> : <span className="text-muted">None</span>} />
                   <Stat label="New ground time" value={`${formatNumber(tr.recommended_extra_min > 0 ? tr.new_ground_min : tr.current_ground_min)} min`} />
-                  <Stat label="Expected absorbed" value={`${formatNumber(tr.expected_absorbed_min, 1)} min`} />
+                  <Stat label="Expected prevented" value={`${formatNumber(tr.expected_absorbed_min, 1)} min`} />
                 </dl>
+                <p className="mt-1.5 text-[11px] text-muted">
+                  Expected minutes: midpoint of the curve view and the model view, across the aircraft's whole day.
+                </p>
+                {tr.chain_multiplier !== null && (
+                  <p className="mt-2 rounded-control bg-teal-soft px-2.5 py-1.5 text-[12px] text-ink">
+                    Chain multiplier <span className="num font-semibold">{formatNumber(tr.chain_multiplier, 2)}</span>: 1 minute saved here is worth
+                    about {formatNumber(tr.chain_multiplier, 1)} minutes across the aircraft's day{tr.protects_later_flights ? ', so this stop protects later flights' : ''}.
+                  </p>
+                )}
                 <p className="mt-3 text-[13px] leading-relaxed text-ink">{data.reason_sentence}</p>
+                {tr.segment && <p className="mt-1 text-[12px] text-muted">Segment: {tr.segment}</p>}
                 {tr.day_rank !== null && <p className="mt-1 text-[12px] text-muted">Rank {formatNumber(tr.day_rank)} of the day at {budget} min per turnaround.</p>}
               </Section>
 
@@ -107,7 +118,7 @@ export function DetailDrawer({ turnId, budget, onClose, showAircraftLink = true 
                 </ul>
               </Section>
 
-              <Section title="Pass-through curve">
+              <Section title={`Pass-through curve · ${data.curve_label}`}>
                 <PassThroughChart curve={data.curve} current={tr.current_ground_min} next={tr.recommended_extra_min > 0 ? tr.new_ground_min : null} />
               </Section>
 
@@ -117,7 +128,7 @@ export function DetailDrawer({ turnId, budget, onClose, showAircraftLink = true 
                     <tr className="text-muted">
                       <th className="pb-1 text-left font-medium">Budget</th>
                       <th className="pb-1 text-right font-medium">Extra</th>
-                      <th className="pb-1 text-right font-medium">Expected absorbed</th>
+                      <th className="pb-1 text-right font-medium">Expected prevented</th>
                       <th className="pb-1 text-right font-medium">Rank</th>
                     </tr>
                   </thead>
@@ -134,15 +145,16 @@ export function DetailDrawer({ turnId, budget, onClose, showAircraftLink = true 
                 </table>
               </Section>
 
-              <Section title="Backtest (what really happened)" className="bg-bg">
+              <Section title="Estimated with real 2026 delays" className="bg-bg">
                 <dl className="grid grid-cols-2 gap-3">
                   <Stat label="Actual inbound delay" value={`${formatNumber(tr.actual_inbound_delay_min)} min`} />
                   <Stat label="Actual outbound delay" value={`${formatNumber(tr.actual_outbound_delay_min)} min`} />
-                  <Stat label="Realised absorbed" value={`${formatNumber(tr.realised_absorbed_min, 1)} min`} />
+                  <Stat label="Prevented, curve view" value={`${formatNumber(tr.realised_absorbed_min, 1)} min`} />
+                  {tr.realised_absorbed_resp_min !== null && <Stat label="Prevented, model view" value={`${formatNumber(tr.realised_absorbed_resp_min, 1)} min`} />}
                   <Stat label="Late departure avoided" value={tr.late_avoided_flag
                     ? <span className="inline-flex items-center gap-1 text-success"><Check size={15} aria-hidden="true" />Yes</span> : 'No'} />
                 </dl>
-                <p className="mt-2 text-[11px] text-muted">Uses the real delays from 2026. Not known when the plan is made.</p>
+                <p className="mt-2 text-[11px] text-muted">{ESTIMATE_HELP} Not known when the plan is made.</p>
               </Section>
             </>
           )}

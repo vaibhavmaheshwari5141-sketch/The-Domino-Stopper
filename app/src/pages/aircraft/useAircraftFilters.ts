@@ -6,7 +6,11 @@ import { PLANNER_BUDGETS, type PlannerBudget } from '../../../shared/planner';
 
 export const DEFAULT_DATE = '2026-03-15';
 
+export type AircraftPlan = 'add' | 'realloc';
+
 export interface AircraftFilters {
+  /** Which plan the chain shows: added buffer, or minutes moved within the day (reallocation). */
+  plan: AircraftPlan;
   date: string;
   budget: PlannerBudget;
   airport: string | null;
@@ -21,6 +25,7 @@ function parse(sp: URLSearchParams): AircraftFilters {
   const budget = Number(sp.get('budget'));
   const tail = (sp.get('tail') ?? '').toUpperCase();
   return {
+    plan: sp.get('plan') === 'realloc' ? 'realloc' : 'add',
     date: date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : DEFAULT_DATE,
     budget: (PLANNER_BUDGETS as readonly number[]).includes(budget) ? (budget as PlannerBudget) : 5,
     airport: /^[A-Z]{3}$/.test(sp.get('airport') ?? '') ? sp.get('airport') : null,
@@ -39,6 +44,7 @@ function serialise(f: AircraftFilters): URLSearchParams {
   if (f.airport) out.set('airport', f.airport);
   if (f.q) out.set('q', f.q);
   if (f.turn) out.set('turn', f.turn);
+  if (f.plan !== 'add') out.set('plan', f.plan);
   if (f.from !== null) out.set('from', f.from);
   return out;
 }

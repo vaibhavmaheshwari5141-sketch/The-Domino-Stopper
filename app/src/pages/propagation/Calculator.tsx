@@ -4,9 +4,9 @@ import { Card } from '../../components/Card';
 import { ErrorState } from '../../components/ErrorState';
 import { axisProps, chartColors, gridProps } from '../../lib/chart';
 import { formatNumber } from '../../lib/format';
-import { useAbsorption, usePropagationCurve } from '../../lib/queries';
+import { useAbsorption, usePropagationCurve, useSegmentCurves } from '../../lib/queries';
 import { CALC_LIMITS } from '../../../shared/propagation';
-import type { PropagationState } from './usePropagationState';
+import { type PropagationState, SINGLE_CURVE } from './usePropagationState';
 
 type Limit = (typeof CALC_LIMITS)[keyof typeof CALC_LIMITS];
 
@@ -55,17 +55,30 @@ function Big({ label, value, sub, accent }: { label: string; value: string; sub?
 
 /** "What would extra ground time buy?" Reads the smoothed curve through /api/propagation/calculate. */
 export function Calculator({ state, update }: { state: PropagationState; update: (patch: Partial<PropagationState>) => void }) {
+  const segments = useSegmentCurves().data?.segments;
+  // A segment name the data does not have (an old link) falls back to the single curve
+  const curveName = state.calcCurve === SINGLE_CURVE || !segments || segments.some((s) => s.segment === state.calcCurve) ? state.calcCurve : SINGLE_CURVE;
   const inputs = useSettled({ ground: state.ground, inbound: state.inbound, extra: state.extra }, 150);
-  const { data, isError, error, refetch, isFetching } = useAbsorption(inputs.ground, inputs.inbound, inputs.extra);
-  const curve = usePropagationCurve().data;
+  const { data, isError, error, refetch, isFetching } = useAbsorption(inputs.ground, inputs.inbound, inputs.extra, curveName);
+  const single = usePropagationCurve().data;
+  const chosen = curveName === SINGLE_CURVE ? single?.points : segments?.find((s) => s.segment === curveName)?.points;
   const xMax = Math.max(300, Math.ceil((state.ground + state.extra) / 30) * 30);
-  const points = curve?.points.length ? [...curve.points, { ground_min: xMax, pass_through: curve.points[curve.points.length - 1].pass_through }] : [];
+  const points = chosen?.length ? [...chosen, { ground_min: xMax, pass_through: chosen[chosen.length - 1].pass_through }] : [];
   const m = (v: number) => `${formatNumber(v, 1)} min`;
 
   return (
     <Card title="What would extra ground time buy?">
       <div className="grid grid-cols-1 gap-5 px-4 pb-4 wide:grid-cols-[minmax(0,5fr)_minmax(0,4fr)]">
         <div className="flex flex-col gap-4">
+          <label className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-ink">
+            Curve
+            <select value={curveName} onChange={(e) => update({ calcCurve: e.target.value })}
+              className="focus-ring h-8 rounded-control border bg-surface px-2 text-[13px] font-normal text-ink">
+              <option value={SINGLE_CURVE}>Single curve (v1)</option>
+              {segments?.map((s) => <option key={s.segment} value={s.segment}>v2: {s.segment.replace(' | ', ', ')}</option>)}
+            </select>
+            <span className="text-[12px] font-normal text-muted">pick an airport type and time of day to use engine v2's curve for that segment</span>
+          </label>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <MinutesInput label="Planned ground time" value={state.ground} limit={CALC_LIMITS.ground_min} onChange={(ground) => update({ ground })} />
             <MinutesInput label="Inbound delay" value={state.inbound} limit={CALC_LIMITS.inbound_delay_min} onChange={(inbound) => update({ inbound })} />
@@ -82,7 +95,10 @@ export function Calculator({ state, update }: { state: PropagationState; update:
               <p className="mt-3 text-[14px] text-ink">{data.sentence}</p>
             </div>
           )}
-          <p className="text-[11px] text-muted">Uses the smoothed curve from the training period. Real results vary by airport and time of day.</p>
+          <p className="text-[11px] text-muted">
+            Uses {curveName === SINGLE_CURVE ? 'the single smoothed curve' : `engine v2's curve for ${curveName.replace(' | ', ', ')}`} from the training period.
+            Real results vary from turnaround to turnaround.
+          </p>
         </div>
 
         <figure className="min-w-0">

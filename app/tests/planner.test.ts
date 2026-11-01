@@ -51,7 +51,7 @@ describe('planner/summary', () => {
       realised_absorbed_min: 16, late_departures_avoided: 2, is_disruption_day: true, absorption_threshold_min: 60.4,
     });
     expect(s.breakdown.total).toBe(6);
-    expect(s.breakdown.reasons[0]).toEqual({ reason_code: 'Added: likely late arrival and ground time already absorbs delay', turnarounds: 2 });
+    expect(s.breakdown.reasons[0]).toEqual({ reason_code: 'Added: likely late arrival that extra minutes can absorb', turnarounds: 2 });
     expect(s.breakdown.risk_bands).toEqual([
       { risk_band: 'High', turnarounds: 2, with_buffer: 2 },
       { risk_band: 'Medium', turnarounds: 3, with_buffer: 1 },
@@ -117,24 +117,37 @@ describe('planner/turnarounds', () => {
 });
 
 describe('planner/turnaround/{turn_id}', () => {
-  it('returns the turnaround, its recommendation at every budget, the curve and three reasons', async () => {
+  it('returns the turnaround, its recommendation at every budget, its segment curve and three reasons', async () => {
     const d = await json<PlannerDetail>('turnaround/20260315-1446-TUL-DFW?budget=5');
-    expect(d.turnaround).toMatchObject({ tail_number: 'N100AA', budget_scenario: 5, recommended_extra_min: 15, new_ground_min: 136, risk_band: 'High' });
+    expect(d.turnaround).toMatchObject({
+      tail_number: 'N100AA', budget_scenario: 5, recommended_extra_min: 15, new_ground_min: 136, risk_band: 'High',
+      segment: 'Ten busiest | Morning', chain_multiplier: 2.5, protects_later_flights: true, eligible_flag: true, realised_absorbed_resp_min: 24,
+    });
     expect(d.budgets.map((b) => [b.budget_scenario, b.recommended_extra_min])).toEqual([[2, 10], [5, 15]]);
-    expect(d.curve).toHaveLength(5);
-    expect(passThroughAt(d.curve, 121)).toBeCloseTo(0.716);
+    // The engine v2 curve of the turnaround's segment, from segment_curve_points
+    expect(d.curve_label).toBe('Segment curve: Ten busiest | Morning');
+    expect(d.curve).toHaveLength(4);
+    expect(passThroughAt(d.curve, 121)).toBeCloseTo(0.5983);
     expect(d.day_risk_share).toBeCloseTo(2 / 6);
     expect(d.why).toEqual([
       'Late chance 40% (riskiest 33% of the day).',
-      'Predicted inbound delay 15.6 min.',
-      'At 121 min of ground time the curve passes on 72% of delay; at 136 min it passes on 66%.',
+      "Predicted inbound delay 15.6 min. 1 minute saved here is worth about 2.5 minutes across the aircraft's day.",
+      'At 121 min of ground time the curve passes on 60% of delay; at 136 min it passes on 57%.',
     ]);
     expect(d.reason_sentence).toMatch(/^Buffer added/);
   });
 
+  it('falls back to the single curve when the segment has none, and shows the model view at the main budget only', async () => {
+    const d = await json<PlannerDetail>('turnaround/20260316-0200-CLT-TPA?budget=5');
+    expect(d.curve_label).toBe('Single curve (all turnarounds)');
+    expect(d.curve).toHaveLength(5);
+    const b2 = await json<PlannerDetail>('turnaround/20260315-1446-TUL-DFW?budget=2');
+    expect(b2.turnaround.realised_absorbed_resp_min).toBeNull();
+  });
+
   it('explains a turnaround that lost out on value', async () => {
     const d = await json<PlannerDetail>('turnaround/20260315-2718-PIT-CLT');
-    expect(d.why[2]).toMatch(/^Each buffer minute here would absorb 0\.01 min/);
+    expect(d.why[2]).toMatch(/^Each buffer minute here would prevent 0\.01 min/);
   });
 
   it('answers 400 for a malformed id and 404 for an unknown one', async () => {

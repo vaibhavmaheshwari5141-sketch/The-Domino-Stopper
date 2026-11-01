@@ -6,14 +6,20 @@ import { RiskChip } from '../../components/RiskChip';
 import type { AircraftDay, AircraftFlight, AircraftTurn } from '../../lib/api';
 import { formatNumber, formatPercent, formatTimeUtc } from '../../lib/format';
 import { flightNo, reasonInfo } from '../../../shared/planner';
+import { ChangeChip } from '../planner/ReallocationView';
 import { formatDelay } from './delay';
 import { DelayChip } from './DelayChip';
+import type { AircraftPlan } from './useAircraftFilters';
 
 interface Props {
   day: AircraftDay;
+  plan: AircraftPlan;
   selectedTurn: string | null;
   onOpenTurn: (turnId: string) => void;
 }
+
+const chainLine = (t: AircraftTurn) => (t.chain_multiplier === null ? null
+  : `Chain multiplier ${formatNumber(t.chain_multiplier, 2)}: 1 minute saved here is worth about ${formatNumber(t.chain_multiplier, 1)} minutes across the aircraft's day${t.protects_later_flights ? ' (protects later flights)' : ''}`);
 
 const time = (v: string | null) => (v ? formatTimeUtc(v) : '––:––');
 
@@ -56,9 +62,20 @@ function FlightTile({ flight, n, turns }: { flight: AircraftFlight; n: number; t
   );
 }
 
-function TurnConnector({ turn, n, total, selected, onOpen }: { turn: AircraftTurn; n: number; total: number; selected: boolean; onOpen: () => void }) {
-  const buffered = turn.recommended_extra_min > 0;
+function TurnConnector({ turn, n, total, plan, selected, onOpen }: {
+  turn: AircraftTurn; n: number; total: number; plan: AircraftPlan; selected: boolean; onOpen: () => void;
+}) {
   const reason = reasonInfo(turn.reason_code);
+  const change = turn.realloc_change_min ?? 0;
+  const realloc = plan === 'realloc';
+  const buffered = realloc ? change > 0 : turn.recommended_extra_min > 0;
+  const gives = realloc && change < 0;
+  const planLine = realloc
+    ? (change === 0 ? 'Reallocation: this stop keeps its planned ground time'
+      : `Reallocation: ${change > 0 ? 'receives' : 'gives'} ${formatNumber(Math.abs(change))} min → ${formatNumber((turn.sched_ground_min ?? 0) + change)} min ground, expected change ${formatNumber(turn.realloc_expected_change_min, 1)} min prevented`)
+    : buffered
+      ? `Engine: +${turn.recommended_extra_min} min → ${formatNumber(turn.new_ground_min)} min ground, expects to prevent ${formatNumber(turn.expected_absorbed_min, 1)} min`
+      : `Engine: no buffer (${reason.short.toLowerCase()})`;
   return (
     <li className="w-full shrink-0 md:w-[160px]">
       <FloatingTip
@@ -67,10 +84,9 @@ function TurnConnector({ turn, n, total, selected, onOpen }: { turn: AircraftTur
             `${turn.airport} · stop ${n} of ${total}`,
             `Planned ground ${formatNumber(turn.sched_ground_min)} min (arrives ${time(turn.sched_inbound_arr_utc)}, leaves ${time(turn.sched_outbound_dep_utc)} UTC)`,
             `Prediction: ${turn.risk_band ?? '–'} risk, late chance ${formatPercent(turn.p_late15, 0)}, inbound delay ${formatNumber(turn.pred_inbound_delay_min, 1)} min`,
-            buffered
-              ? `Engine: +${turn.recommended_extra_min} min → ${formatNumber(turn.new_ground_min)} min ground, expects to absorb ${formatNumber(turn.expected_absorbed_min, 1)} min`
-              : `Engine: no buffer (${reason.short.toLowerCase()})`,
-            `Backtest: inbound ${formatDelay(turn.actual_inbound_delay_min)}, outbound ${formatDelay(turn.actual_outbound_delay_min)}${buffered ? `, absorbed ${formatNumber(turn.realised_absorbed_min, 1)} min${turn.late_avoided_flag ? ', late departure avoided' : ''}` : ''}`,
+            planLine,
+            chainLine(turn),
+            `Real 2026 delays: inbound ${formatDelay(turn.actual_inbound_delay_min)}, outbound ${formatDelay(turn.actual_outbound_delay_min)}${!realloc && buffered ? `, prevented ${formatNumber(turn.realised_absorbed_min, 1)} min (curve view)${turn.late_avoided_flag ? ', late departure avoided' : ''}` : ''}${realloc && change !== 0 ? `, prevented ${formatNumber(turn.realloc_realised_min, 1)} min (curve view)` : ''}`,
             'Click for the full details.',
           ]} />
         }
@@ -81,7 +97,8 @@ function TurnConnector({ turn, n, total, selected, onOpen }: { turn: AircraftTur
           aria-label={`Stop ${n} at ${turn.airport}: open details`}
           className={clsx(
             'focus-ring h-full w-full rounded-card px-3 py-2 text-left transition-colors',
-            buffered ? 'border-2 border-dashed border-amber bg-surface hover:bg-amber-soft' : 'border bg-bg hover:bg-teal-soft',
+            buffered ? 'border-2 border-dashed border-amber bg-surface hover:bg-amber-soft'
+              : gives ? 'border-2 border-dashed border-teal bg-surface hover:bg-teal-soft' : 'border bg-bg hover:bg-teal-soft',
             selected && 'ring-2 ring-teal',
           )}
         >
@@ -95,7 +112,14 @@ function TurnConnector({ turn, n, total, selected, onOpen }: { turn: AircraftTur
           <p className="num text-[11px] text-muted">{formatNumber(turn.sched_ground_min)} min ground</p>
           <p className="mt-1 text-[11px] text-ink">Late chance <span className="num font-semibold">{formatPercent(turn.p_late15, 0)}</span></p>
           <p className="text-[11px] text-ink">Pred. inbound <span className="num font-semibold">{formatNumber(turn.pred_inbound_delay_min, 1)} min</span></p>
-          {buffered ? (
+          {realloc ? (
+            change !== 0 ? (
+              <p className="mt-1">
+                <ChangeChip minutes={change} />
+                <span className="num block text-[11px] text-muted">→ {formatNumber((turn.sched_ground_min ?? 0) + change)} min ground</span>
+              </p>
+            ) : <p className="mt-1 text-[11px] text-muted">Unchanged</p>
+          ) : buffered ? (
             <p className="mt-1 text-[12px] font-bold text-amber">
               +{turn.recommended_extra_min} min buffer
               <span className="num block text-[11px] font-normal text-muted">→ {formatNumber(turn.new_ground_min)} min ground</span>
@@ -119,7 +143,7 @@ function BreakMarker({ arrivedAt, nextAirport }: { arrivedAt: string | null; nex
   );
 }
 
-export function DominoChain({ day, selectedTurn, onOpenTurn }: Props) {
+export function DominoChain({ day, plan, selectedTurn, onOpenTurn }: Props) {
   return (
     <div className="overflow-x-auto pb-2">
       <ol className="flex flex-col md:w-max md:flex-row md:items-stretch" aria-label={`${day.tail_number}: flights and stops in order`}>
@@ -132,6 +156,7 @@ export function DominoChain({ day, selectedTurn, onOpenTurn }: Props) {
                 turn={day.turnarounds[item.index]}
                 n={item.index + 1}
                 total={day.turnarounds.length}
+                plan={plan}
                 selected={day.turnarounds[item.index].turn_id === selectedTurn}
                 onOpen={() => onOpenTurn(day.turnarounds[item.index].turn_id)}
               />
@@ -144,14 +169,21 @@ export function DominoChain({ day, selectedTurn, onOpenTurn }: Props) {
   );
 }
 
-export function ChainLegend() {
+export function ChainLegend({ plan }: { plan: AircraftPlan }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted">
       <span className="flex items-center gap-1">Risk: <RiskChip band="High" /> <RiskChip band="Medium" /> <RiskChip band="Low" /></span>
       <span className="flex items-center gap-1">Actual delay: <DelayChip minutes={-5} /> <DelayChip minutes={25} /> <DelayChip minutes={75} /></span>
-      <span className="flex items-center gap-1.5">
-        <span className="inline-block h-3.5 w-6 rounded border-2 border-dashed border-amber" aria-hidden="true" /> engine adds buffer here
-      </span>
+      {plan === 'add' ? (
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-3.5 w-6 rounded border-2 border-dashed border-amber" aria-hidden="true" /> engine adds buffer here
+        </span>
+      ) : (
+        <>
+          <span className="flex items-center gap-1.5"><ChangeChip minutes={15} /> stop receives minutes</span>
+          <span className="flex items-center gap-1.5"><ChangeChip minutes={-15} /> long sit gives minutes</span>
+        </>
+      )}
       <span className="flex items-center gap-1"><Unlink size={12} className="text-critical" aria-hidden="true" /> break in chain (stops do not connect)</span>
     </div>
   );

@@ -7,6 +7,8 @@ import {
   type PlannerTurnaroundsResponse, type QueryParams, type SimAllocationResponse, type SimDailyResponse, type SimStrategiesResponse,
   type SimSweepResponse, type ModelQuality, type RiskGroundBand, type RiskHeatmap, type RiskSummary,
   type RiskTrendRow, type RiskTurnaround, type DatasetPreview, type DatasetProfile, type DatasetSchema, type DatasetsResponse,
+  type CostsResponse, type EngineKpisResponse, type KpiCatalogResponse, type NetValueResponse, type ReallocationResponse,
+  type SegmentCurves,
 } from './api';
 
 export function useMeta() {
@@ -61,6 +63,16 @@ export function usePlannerTurnarounds(params: QueryParams) {
     queryKey: ['planner', 'turnarounds', params],
     queryFn: ({ signal }) => apiGet<PlannerTurnaroundsResponse>('/api/planner/turnarounds', params, { signal }),
     placeholderData: keepPreviousData,
+  });
+}
+
+/** Reallocate mode: the turnarounds that give or receive minutes on a day. */
+export function usePlannerReallocation(date: string, airport: string | null, tail: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['planner', 'reallocation', date, airport, tail],
+    queryFn: ({ signal }) => apiGet<ReallocationResponse>('/api/planner/reallocation', { date, airport, tail: tail || null }, { signal }),
+    placeholderData: keepPreviousData,
+    enabled,
   });
 }
 
@@ -122,6 +134,41 @@ export function useSimAllocation(budget: number, grouping: string) {
   return useQuery({
     queryKey: ['simulator', 'allocation', budget, grouping],
     queryFn: ({ signal }) => apiGet<SimAllocationResponse>('/api/simulator/allocation', { budget, grouping }, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+// ---- Engine v2 KPIs ----------------------------------------------------------------------------------------------
+
+export function useKpiCatalog() {
+  return useQuery({
+    queryKey: ['kpis', 'catalog'],
+    queryFn: ({ signal }) => apiGet<KpiCatalogResponse>('/api/kpis/catalog', undefined, { signal }),
+  });
+}
+
+/** Both views unless one is asked for; `budget: 'all'` returns every budget (the budget sweep). */
+export function useEngineKpis(budget: number | 'all', dayType: string) {
+  return useQuery({
+    queryKey: ['kpis', 'engine', budget, dayType],
+    queryFn: ({ signal }) => apiGet<EngineKpisResponse>('/api/kpis/engine', { budget, day_type: dayType, evaluator: 'both', mode: 'all' }, { signal }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useCosts() {
+  return useQuery({
+    queryKey: ['kpis', 'costs'],
+    queryFn: ({ signal }) => apiGet<CostsResponse>('/api/kpis/costs', undefined, { signal }),
+  });
+}
+
+/** Net value and break-even for every strategy and view at the given costs (null = the stored assumption). */
+export function useNetValue(budget: number, dayType: string, costDelay: number | null, costBuffer: number | null) {
+  return useQuery({
+    queryKey: ['kpis', 'net-value', budget, dayType, costDelay, costBuffer],
+    queryFn: ({ signal }) => apiGet<NetValueResponse>('/api/kpis/net-value',
+      { budget, day_type: dayType, cost_delay: costDelay, cost_buffer: costBuffer }, { signal }),
     placeholderData: keepPreviousData,
   });
 }
@@ -263,12 +310,19 @@ export function usePropagationByLeg(period: LegPeriod) {
   });
 }
 
-/** Keeps the previous result on screen while the sliders move. */
-export function useAbsorption(ground: number, inbound: number, extra: number) {
+export function useSegmentCurves() {
   return useQuery({
-    queryKey: ['propagation', 'calculate', ground, inbound, extra],
+    queryKey: ['propagation', 'segment-curves'],
+    queryFn: ({ signal }) => apiGet<SegmentCurves>('/api/propagation/segment-curves', undefined, { signal }),
+  });
+}
+
+/** Keeps the previous result on screen while the sliders move. `curve` is "v1" or a v2 segment name. */
+export function useAbsorption(ground: number, inbound: number, extra: number, curve: string) {
+  return useQuery({
+    queryKey: ['propagation', 'calculate', ground, inbound, extra, curve],
     queryFn: ({ signal }) => apiGet<AbsorptionResult>('/api/propagation/calculate',
-      { ground_min: ground, inbound_delay_min: inbound, extra_min: extra }, { signal }),
+      { ground_min: ground, inbound_delay_min: inbound, extra_min: extra, curve }, { signal }),
     placeholderData: keepPreviousData,
   });
 }

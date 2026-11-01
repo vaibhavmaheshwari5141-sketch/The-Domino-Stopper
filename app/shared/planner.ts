@@ -22,13 +22,15 @@ export interface ReasonInfo {
   sentence: string;
 }
 
-// gold_buffer_recommendation.reason_code values (notebook 08) -> short label and sentence
+// gold_buffer_recommendation.reason_code values (notebook 08 version 2) -> short label and sentence
 const REASONS: [match: string, info: ReasonInfo][] = [
-  ['likely late arrival', { short: 'Absorbs delay', added: true, sentence: 'Buffer added: the aircraft is likely to arrive late and this ground time already absorbs delay, so every extra minute counts.' }],
-  ['reach the range', { short: 'Reaches absorbing range', added: true, sentence: 'Buffer added: the extra minutes lift the ground time into the range where delay starts to be absorbed.' }],
-  ['too short', { short: 'Too short to help', added: false, sentence: 'No buffer: the turnaround is too short, so a few extra minutes would absorb almost nothing.' }],
-  ['low inbound risk', { short: 'Low risk', added: false, sentence: 'No buffer: the inbound aircraft is unlikely to be late.' }],
-  ['more value per minute', { short: 'Lower value than others', added: false, sentence: 'No buffer: the budget was used on turnarounds where each minute absorbs more delay.' }],
+  ['shorter than a turn usually needs', { short: 'Stop shorter than needed', added: true, sentence: 'Buffer added: the planned stop is shorter than a turn usually needs, so extra minutes prevent delay here and on later flights.' }],
+  ['likely late arrival', { short: 'Late arrival to absorb', added: true, sentence: 'Buffer added: the aircraft is likely to arrive late and extra minutes here can absorb that delay before it reaches later flights.' }],
+  ['prevent more per minute', { short: 'Lower value than others', added: false, sentence: 'No buffer: the budget was used on turnarounds where each minute prevents more delay.' }],
+  ['long sit', { short: 'Long sit (over 150 min)', added: false, sentence: 'No buffer: the aircraft sits on the ground for over 150 minutes, outside the planning range.' }],
+  ['daily share', { short: 'Airport share reached', added: false, sentence: "No buffer: this airport already has its daily share of the buffer (at most 20% of a day's buffer goes to one airport)." }],
+  ['very short turn', { short: 'Very short turn', added: false, sentence: 'No buffer: very short turns (under 20 min) are usually aircraft swaps, not real turns.' }],
+  ['prevent almost nothing', { short: 'Prevents almost nothing', added: false, sentence: 'No buffer: extra minutes here would prevent almost no delay.' }],
 ];
 
 export function reasonInfo(code: string | null | undefined): ReasonInfo {

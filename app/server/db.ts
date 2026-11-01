@@ -38,13 +38,14 @@ export class DataAccessError extends Error {
   name = 'DataAccessError';
 }
 
-// The 21 gold tables written by notebook 08_consumption_tables
+// The 25 gold tables written by notebook 08_consumption_tables (version 2 added the last four)
 export const GOLD_TABLES: ReadonlySet<string> = new Set([
   'gold_dim_airport', 'gold_dim_date', 'gold_kpi_headline', 'gold_network_daily', 'gold_airport_month',
   'gold_airport_hour', 'gold_passthrough_curve', 'gold_delay_by_leg', 'gold_ml_predictions', 'gold_model_metrics',
   'gold_model_deciles', 'gold_feature_importance', 'gold_buffer_recommendation', 'gold_buffer_plan_daily',
   'gold_buffer_plan_airport', 'gold_sim_strategy', 'gold_sim_daily', 'gold_buffer_allocation', 'gold_data_quality',
   'gold_engine_run_log', 'gold_table_catalog',
+  'gold_engine_kpis', 'gold_kpi_catalog', 'gold_cost_assumptions', 'gold_buffer_reallocation',
 ]);
 // Reference tables from databricks/01_import_raw_bts.py
 const REF_TABLES: ReadonlySet<string> = new Set(['ref_airports_tz']);   // airport name, coordinates, time zone

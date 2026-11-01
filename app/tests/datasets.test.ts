@@ -71,9 +71,10 @@ describe('GET /api/datasets', () => {
 
     const gold = groups[1].items;
     // gold_unknown is not on the allow-list and gold_old belongs to an older run; the catalog lists itself
-    expect(gold.map((g) => g.name)).toEqual(['gold_buffer_recommendation', 'gold_dim_airport', 'gold_kpi_headline', 'gold_table_catalog']);
+    expect(gold.map((g) => g.name)).toEqual(['gold_buffer_recommendation', 'gold_dim_airport', 'gold_engine_kpis', 'gold_kpi_headline', 'gold_table_catalog']);
     expect(gold[0]).toMatchObject({ rows: 1701088, columns: 17, grain: 'turnaround x budget', dashboard_page: '6a Recommendations' });
-    expect(gold[3]).toMatchObject({ display_name: 'table_catalog', description: 'Describes every other gold table.', rows: 5, columns: 8 });
+    expect(gold[4]).toMatchObject({ display_name: 'table_catalog', description: 'Describes every other gold table.', rows: 6, columns: 8 });
+    expect(gold[2]).toMatchObject({ rows: 132, grain: 'strategy x budget x mode x evaluator x day type' });
   });
 });
 

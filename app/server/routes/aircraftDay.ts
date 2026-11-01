@@ -6,6 +6,7 @@ import type { AircraftDay, AircraftFlight, AircraftListResponse, AircraftSummary
 import { formatDayLong, formatNumber } from '../../shared/format.ts';
 import { PLANNER_BUDGETS, flightNo, reasonInfo } from '../../shared/planner.ts';
 import { cached } from '../cache.ts';
+import { MAIN_BUDGET } from './planner.ts';
 import { query, t } from '../db.ts';
 import { HttpError } from '../http.ts';
 import { airportCode, intInRange, isoDate, oneOfNumber, optionalTailNumber, searchText, tailNumber } from '../params.ts';
@@ -98,13 +99,18 @@ export async function getAircraftDay(p: URLSearchParams): Promise<AircraftDay> {
             COALESCE(p.is_disruption_day, FALSE) AS is_disruption_day, p.p_late15, p.pred_inbound_delay_min, p.risk_band,
             p.actual_inbound_delay_min, p.actual_outbound_delay_min, p.actual_late15,
             COALESCE(r.recommended_extra_min, 0) AS recommended_extra_min, r.new_ground_min, r.expected_absorbed_min,
-            r.realised_absorbed_min, COALESCE(r.late_avoided_flag, FALSE) AS late_avoided_flag, r.reason_code, r.day_rank
+            r.realised_absorbed_min, COALESCE(r.late_avoided_flag, FALSE) AS late_avoided_flag, r.reason_code, r.day_rank,
+            r.chain_multiplier, COALESCE(r.protects_later_flights, FALSE) AS protects_later_flights,
+            g.change_min AS realloc_change_min, g.expected_change_min AS realloc_expected_change_min,
+            g.realised_absorbed_min AS realloc_realised_min
      FROM ${t('gold_ml_predictions')} p
      LEFT JOIN ${t('gold_buffer_recommendation')} r
        ON r.turn_id = p.turn_id AND r.flight_date = CAST(:date AS DATE) AND r.budget_scenario = :budget
+     LEFT JOIN ${t('gold_buffer_reallocation')} g
+       ON g.turn_id = p.turn_id AND g.flight_date = CAST(:date AS DATE) AND g.budget_scenario = :main_budget
      WHERE p.flight_date = CAST(:date AS DATE) AND p.tail_number = :tail
      ORDER BY p.sched_outbound_dep_utc, p.turn_id`,
-    { tail, date, budget },
+    { tail, date, budget, main_budget: MAIN_BUDGET },
   );
   if (!turns.length) {
     throw new HttpError(404, `${tail} has no turnarounds on ${formatDayLong(date)}. It may not have flown that day, or flew only one leg. Pick another aircraft or day.`);
@@ -130,7 +136,23 @@ export async function getAircraftDay(p: URLSearchParams): Promise<AircraftDay> {
       late_departures_avoided: turns.filter((x) => x.late_avoided_flag).length,
     },
     plan_sentence: planSentence(tail, turns),
+    reallocation: reallocationTotals(tail, turns),
   };
+}
+
+/** The reallocation plan for the aircraft: minutes moved, stops involved, and one sentence. */
+export function reallocationTotals(tail: string, turns: AircraftTurn[]): AircraftDay['reallocation'] {
+  const receives = turns.filter((x) => (x.realloc_change_min ?? 0) > 0);
+  const gives = turns.filter((x) => (x.realloc_change_min ?? 0) < 0);
+  const moved = receives.reduce((s, x) => s + (x.realloc_change_min ?? 0), 0);
+  const expected = turns.reduce((s, x) => s + (x.realloc_expected_change_min ?? 0), 0);
+  const at = (xs: AircraftTurn[]) => [...new Set(xs.map((x) => x.airport))].join(', ');
+  const sentence = moved === 0
+    ? `Reallocation leaves ${tail} as planned today: it has no long sit to take minutes from, or no risky stop to give them to.`
+    : `Reallocation moves ${formatNumber(moved)} minutes from the long sit${gives.length > 1 ? 's' : ''} at ${at(gives)} to `
+      + `${receives.length > 1 ? 'the risky stops' : 'the risky stop'} at ${at(receives)}, adding nothing to the day `
+      + `(expected change in delay prevented: ${expected > 0 ? '+' : ''}${formatNumber(expected, 1)} min).`;
+  return { budget: MAIN_BUDGET, minutes_moved: moved, receiving: receives.length, giving: gives.length, expected_change_min: expected, sentence };
 }
 
 /**
@@ -170,9 +192,11 @@ export function buildChain(turns: AircraftTurn[]): { flights: AircraftFlight[]; 
 }
 
 const NO_BUFFER_WHY: Record<string, string> = {
-  'Low risk': 'its arrivals are unlikely to be late',
-  'Too short to help': 'its stops are too short for a few extra minutes to absorb delay',
-  'Lower value than others': 'the same minutes absorb more delay on other aircraft',
+  'Lower value than others': 'the same minutes prevent more delay on other aircraft',
+  'Long sit (over 150 min)': 'its stops are long sits, outside the planning range',
+  'Airport share reached': 'its airports already have their daily share of the buffer',
+  'Very short turn': 'its stops are very short turns, usually aircraft swaps',
+  'Prevents almost nothing': 'extra minutes would prevent almost no delay',
 };
 
 /** One or two plain sentences about where (and why) the engine adds buffer on this aircraft. */
@@ -190,13 +214,13 @@ export function planSentence(tail: string, turns: AircraftTurn[]): string {
   const where = (x: AircraftTurn) => `${formatNumber(x.recommended_extra_min)} minutes at ${x.airport} before ${flightNo(x.outbound_flight_no)}`;
   if (added.length === 1) {
     const x = added[0];
-    const why = reasonInfo(x.reason_code).short === 'Reaches absorbing range'
-      ? 'where a late arrival is likely and the extra minutes lift the stop into the range where delay is absorbed'
-      : 'where a late arrival is likely and the stop is long enough to absorb it';
+    const why = reasonInfo(x.reason_code).short === 'Stop shorter than needed'
+      ? 'where the planned stop is shorter than a turn usually needs'
+      : 'where a late arrival is likely and extra minutes can absorb it';
     return `The engine adds ${where(x)}, ${why}.`;
   }
   const total = added.reduce((s, x) => s + x.recommended_extra_min, 0);
   const parts = added.map(where);
   const list = `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
-  return `The engine adds ${formatNumber(total)} minutes in total: ${list}. These are the stops where a late arrival is likely and extra ground time absorbs the most.`;
+  return `The engine adds ${formatNumber(total)} minutes in total: ${list}. These are the stops where extra ground time prevents the most delay across the day.`;
 }

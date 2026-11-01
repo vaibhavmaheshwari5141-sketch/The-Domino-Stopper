@@ -2,6 +2,9 @@ import { AlertTriangle, Info, Plane } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Card } from '../components/Card';
 import { ErrorState } from '../components/ErrorState';
+import { SegmentedControl } from '../components/SegmentedControl';
+import { InfoTip } from '../components/Tooltip';
+import { MODE_HELP } from '../../shared/kpis';
 import { ApiError } from '../lib/api';
 import { formatDayLong, formatNumber } from '../lib/format';
 import { useAircraftDay, useAircraftList, usePlannerAirports, usePlannerDates } from '../lib/queries';
@@ -63,6 +66,17 @@ export default function AircraftDay() {
 
         <div className="flex min-w-0 flex-col gap-4">
           <Card
+            aside={
+              <div className="flex items-center gap-1.5">
+                <span className="text-[12px] text-muted">Show:</span>
+                <SegmentedControl label="Plan shown" value={filters.plan} onChange={(plan) => update({ plan })}
+                  options={[{ value: 'add', label: 'Add buffer plan' }, { value: 'realloc', label: 'Reallocation plan' }]} />
+                <InfoTip label="About the plans" align="right">
+                  <span className="mb-1 block">{MODE_HELP.add}</span>
+                  <span className="block">{MODE_HELP.reallocate} Planned at the main budget (5 min per turnaround).</span>
+                </InfoTip>
+              </div>
+            }
             title={
               day.data ? (
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -70,7 +84,8 @@ export default function AircraftDay() {
                   <span className="num">{day.data.tail_number}</span>
                   <span className="font-normal text-muted">
                     · {formatDayLong(day.data.date)} · {formatNumber(day.data.turnarounds.length)} stops · {formatNumber(day.data.flights.length)} flights
-                    {day.data.totals.buffer_min > 0 && <> · <span className="font-semibold text-amber">+{formatNumber(day.data.totals.buffer_min)} min buffer</span></>}
+                    {filters.plan === 'add' && day.data.totals.buffer_min > 0 && <> · <span className="font-semibold text-amber">+{formatNumber(day.data.totals.buffer_min)} min buffer</span></>}
+                    {filters.plan === 'realloc' && day.data.reallocation.minutes_moved > 0 && <> · <span className="font-semibold text-teal">{formatNumber(day.data.reallocation.minutes_moved)} min moved, 0 added</span></>}
                   </span>
                   {day.data.is_disruption_day && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-soft px-2 py-px text-[11px] font-semibold text-amber">
@@ -95,11 +110,12 @@ export default function AircraftDay() {
                 <div className="flex gap-3 overflow-hidden">{Array.from({ length: 6 }, (_, i) => <span key={i} className="skeleton block h-36 w-40 shrink-0" />)}</div>
               ) : (
                 <>
-                  <DominoChain day={day.data} selectedTurn={filters.turn} onOpenTurn={(turn) => update({ turn })} />
+                  <DominoChain day={day.data} plan={filters.plan} selectedTurn={filters.turn} onOpenTurn={(turn) => update({ turn })} />
                   <div className="mt-3 space-y-1.5 border-t pt-3">
-                    <ChainLegend />
+                    <ChainLegend plan={filters.plan} />
                     <p className="text-[11px] text-muted">
-                      The backtest shows the delay absorbed at each stop. It does not re-simulate how that saving would have carried to later flights.
+                      Figures with real 2026 delays replay what really happened through the aircraft's day. They are estimates, not measured savings.
+                      Hover a stop for its chain multiplier.
                     </p>
                   </div>
                 </>
@@ -110,7 +126,7 @@ export default function AircraftDay() {
           {day.data && !notFound && (
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               <DelayChart day={day.data} />
-              <PlanCard day={day.data} />
+              <PlanCard day={day.data} plan={filters.plan} />
             </div>
           )}
         </div>

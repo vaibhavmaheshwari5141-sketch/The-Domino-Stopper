@@ -2,17 +2,21 @@ import clsx from 'clsx';
 import { Check, Info } from 'lucide-react';
 import { useId } from 'react';
 import { SegmentedControl } from '../../components/SegmentedControl';
-import { Tooltip } from '../../components/Tooltip';
-import { HATCH_ID, STRATEGY_COLOR } from '../../config/strategies';
+import { InfoTip, Tooltip } from '../../components/Tooltip';
+import { HATCH_ID, strategyColor } from '../../config/strategies';
 import { formatCompact } from '../../lib/format';
+import { EVALUATOR_LABEL, MODE_HELP, MODE_LABEL, VIEW_HELP } from '../../../shared/kpis';
 import { PLANNER_BUDGETS } from '../../../shared/planner';
-import { DAY_TYPES, STRATEGIES } from '../../../shared/simulator';
+import { DAY_TYPES, KNOWN_STRATEGIES, strategyDef } from '../../../shared/simulator';
 import type { SimState } from './useSimulatorState';
 
 interface Props {
   state: SimState;
   update: (patch: Partial<SimState>) => void;
-  /** Engine buffer minutes over the whole period at the selected budget (all days). */
+  /** Strategies of the selected mode, from the data, in display order. */
+  available: string[];
+  selected: string[];
+  /** Buffer minutes over the whole period at the selected budget (all days). */
   totalMinutes: number | null | undefined;
 }
 
@@ -31,22 +35,23 @@ export function Swatch({ id }: { id: string }) {
       <rect width="12" height="12" fill={`url(#${patternId})`} />
     </svg>
   ) : (
-    <span className="h-3 w-3 shrink-0 rounded-sm" style={{ background: STRATEGY_COLOR[id] }} aria-hidden="true" />
+    <span className="h-3 w-3 shrink-0 rounded-sm" style={{ background: strategyColor(id) }} aria-hidden="true" />
   );
 }
 
-export function SimControls({ state, update, totalMinutes }: Props) {
+export function SimControls({ state, update, available, selected, totalMinutes }: Props) {
   const stop = PLANNER_BUDGETS.indexOf(state.budget);
   const toggle = (name: string) => {
-    const on = state.strategies.includes(name);
-    update({ strategies: STRATEGIES.map((s) => s.name).filter((n) => (n === name ? !on : state.strategies.includes(n))) });
+    const on = selected.includes(name);
+    const next = available.filter((n) => (n === name ? !on : selected.includes(n)));
+    update({ strategies: next.length === available.length ? null : next.map((n) => strategyDef(n).id) });
   };
+  // Definitions: every known strategy plus any the data has that this page has never seen
+  const definitions = [...KNOWN_STRATEGIES, ...available.filter((n) => !KNOWN_STRATEGIES.some((k) => k.name === n)).map((n) => strategyDef(n))];
 
   return (
     // -mt-5 / top-[-20px] cancel the content area padding, so the bar sits flush under the top bar while scrolling
     <div className="sticky top-[-20px] z-30 -mx-5 -mt-5 border-b bg-bg px-5 pb-3 pt-4">
-      <p className="mb-3 text-[13px] text-muted">Compare ways of placing the same buffer budget, using a replay of Jan to Aug 2026.</p>
-
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="flex items-center gap-3">
           <label htmlFor="budget-slider" className="text-[13px] font-medium text-ink">
@@ -82,17 +87,52 @@ export function SimControls({ state, update, totalMinutes }: Props) {
         />
       </div>
 
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[13px] font-medium text-ink">Mode</span>
+          <SegmentedControl
+            label="Mode"
+            value={state.mode}
+            options={[{ value: 'add', label: MODE_LABEL.add }, { value: 'reallocate', label: MODE_LABEL.reallocate }]}
+            onChange={(mode) => update({ mode, strategies: null })}
+          />
+          <InfoTip label="About the modes">
+            <span className="mb-1 block">{MODE_HELP.add}</span>
+            <span className="block">{MODE_HELP.reallocate}</span>
+          </InfoTip>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[13px] font-medium text-ink">Evaluator</span>
+          <SegmentedControl
+            label="Evaluator"
+            value={state.evaluator}
+            options={[
+              { value: 'curve', label: EVALUATOR_LABEL.curve },
+              { value: 'response model', label: EVALUATOR_LABEL['response model'] },
+              { value: 'both', label: 'Both' },
+            ]}
+            onChange={(evaluator) => update({ evaluator })}
+          />
+          <InfoTip label="About the two views">
+            <span className="mb-1 block">{VIEW_HELP.curve}</span>
+            <span className="mb-1 block">{VIEW_HELP.model}</span>
+            <span className="block">{VIEW_HELP.range}</span>
+          </InfoTip>
+        </div>
+      </div>
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="text-[13px] font-medium text-ink">Strategies to compare</span>
         <Tooltip
           align="left"
-          className="max-w-[440px]"
+          className="max-w-[460px]"
           content={
             <dl className="space-y-1.5">
-              {STRATEGIES.map((s) => (
+              {definitions.map((s) => (
                 <div key={s.id}>
-                  <dt className="flex items-center gap-1.5 font-semibold"><Swatch id={s.id} />{s.label}</dt>
-                  <dd className="text-muted">{s.rule}</dd>
+                  <dt className="flex items-center gap-1.5 font-semibold"><Swatch id={s.id} />{s.label}
+                    <span className="font-normal text-muted">· {s.mode === 'reallocate' ? 'reallocate' : 'add'}</span></dt>
+                  <dd className="text-muted">{s.rule || 'No description for this strategy yet.'}</dd>
                 </div>
               ))}
             </dl>
@@ -102,15 +142,16 @@ export function SimControls({ state, update, totalMinutes }: Props) {
             <Info size={14} aria-hidden="true" />
           </button>
         </Tooltip>
-        {STRATEGIES.map((s) => {
-          const on = state.strategies.includes(s.name);
+        {available.map((name) => {
+          const s = strategyDef(name);
+          const on = selected.includes(name);
           return (
             <button
               key={s.id}
               type="button"
               role="checkbox"
               aria-checked={on}
-              onClick={() => toggle(s.name)}
+              onClick={() => toggle(name)}
               className={clsx(
                 'focus-ring inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[12px]',
                 on ? 'border-line bg-surface font-medium text-ink shadow-sm' : 'bg-bg text-muted line-through decoration-line',
@@ -121,6 +162,7 @@ export function SimControls({ state, update, totalMinutes }: Props) {
               </span>
               <Swatch id={s.id} />
               {s.label}
+              {state.mode === 'reallocate' && s.mode === 'add' && <span className="text-[10px] font-normal text-muted">(adds buffer, for reference)</span>}
             </button>
           );
         })}

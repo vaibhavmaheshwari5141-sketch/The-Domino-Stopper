@@ -17,6 +17,7 @@
   /* Accents */
   --color-amber: #C9741C;       /* buffer minutes, highlights */
   --color-amber-soft: #F6E6D3;
+  --color-amber-mid: #E2A462;    /* engine v1 in strategy charts (a lighter amber than the v2 engine) */
   --color-teal: #23797F;        /* model / engine output, focus */
   --color-teal-soft: #DCEEEE;
 

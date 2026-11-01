@@ -38,6 +38,19 @@ export function formatMinutes(v: Num, digits = 0): string {
   return isNum(v) ? `${formatNumber(v, digits)} min` : EMPTY;
 }
 
+/** US dollars. Compact: 2066592 -> "$2.1M", -84249509 -> "-$84.2M"; otherwise 11.0985 -> "$11.10". */
+export function formatUsd(v: Num, compact = true): string {
+  if (!isNum(v)) return EMPTY;
+  return compact
+    ? nf({ style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 }).format(v)
+    : nf({ style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+}
+
+/** Percentage points with a sign: 0.6539 -> "+0.65 pp" */
+export function formatPp(v: Num, digits = 2): string {
+  return isNum(v) ? `${v > 0 ? '+' : ''}${formatNumber(v, digits)} pp` : EMPTY;
+}
+
 /** 4.04 -> "4.0x" */
 export function formatMultiplier(v: Num, digits = 1): string {
   return isNum(v) ? `${v.toFixed(digits)}x` : EMPTY;
