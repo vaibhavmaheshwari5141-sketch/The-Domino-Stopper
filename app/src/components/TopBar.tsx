@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom';
-import { DataContextChip } from './DataContextChip';
 import { LogoMark } from './LogoMark';
 import { UserMenu } from './UserMenu';
 
@@ -16,7 +15,6 @@ export function TopBar({ title }: { title: string }) {
       <span className="h-6 w-px shrink-0 bg-line" aria-hidden="true" />
       <h1 className="min-w-0 truncate text-[15px] font-semibold text-ink">{title}</h1>
       <div className="ml-auto flex shrink-0 items-center gap-3">
-        <DataContextChip />
         <UserMenu />
       </div>
     </header>

@@ -16,7 +16,7 @@ export const NAV: NavItem[] = [
   { path: '/aircraft-day', title: 'Aircraft Day', icon: Plane },
   { path: '/scenario-simulator', title: 'Scenario Simulator', icon: SlidersHorizontal },
   { path: '/risk-forecast', title: 'Risk Forecast', icon: Gauge },
-  { path: '/airport-insights', title: 'Airport Insights', icon: Building2 },
+  { path: '/airport-insights', title: 'Airport Insights', icon: Building2, fit: true },
   { path: '/delay-propagation', title: 'Delay Propagation', icon: Waypoints },
   { path: '/input-data', title: 'Input Data', icon: Database, fit: true },
 ];

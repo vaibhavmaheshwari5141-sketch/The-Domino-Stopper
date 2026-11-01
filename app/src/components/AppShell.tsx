@@ -49,8 +49,10 @@ export function AppShell() {
         <div className={clsx('relative shrink-0 transition-[width] duration-200', intro ? 'w-60' : 'w-16')}>
           <SideBar expanded={intro || hover} overlay={hover && !intro} onHover={setHover} />
         </div>
-        {/* Scrolls by default; `fit` pages stay within the viewport on large screens */}
-        <main className={clsx('h-[calc(100vh-56px)] min-w-0 flex-1 overflow-auto p-5', handle?.fit && 'fit:overflow-hidden')}>
+        {/* Scrolls by default; `fit` pages stay within the viewport on large screens. `relative` anchors absolutely
+            positioned content (such as sr-only labels) here, so it scrolls with the page instead of stretching the window
+            and adding a second scrollbar. */}
+        <main className={clsx('relative h-[calc(100vh-56px)] min-w-0 flex-1 overflow-auto p-5', handle?.fit && 'fit:overflow-hidden')}>
           <Outlet />
         </main>
       </div>
