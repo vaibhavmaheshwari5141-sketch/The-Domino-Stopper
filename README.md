@@ -10,7 +10,7 @@
 
 > Simulation on public BTS data. Not connected to airline systems.
 
-## For the professor: what D2 contains
+ what D2 contains
 
 D2 is a data audit with a cleaned dataset. It is built from the public BTS *Reporting Carrier On-Time Performance* files for
 American Airlines mainline flights, January 2025 to August 2026 (**1,641,071 flights, 59 columns after cleaning, no rows deleted**).
