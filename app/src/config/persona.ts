@@ -7,8 +7,8 @@ export interface Persona {
 }
 
 export const PERSONA: Persona = {
-  name: 'Aarav Mehta',
+    name: 'Vaibhav Maheshwari',
   role: 'Network Schedule Planner',
-  team: 'Network Planning',
-  initials: 'AM',
+  team: 'XIME Bangalore',
+  initials: 'VM',
 };
