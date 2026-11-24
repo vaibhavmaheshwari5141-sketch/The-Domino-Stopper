@@ -5,12 +5,14 @@ import { usePlannerAirports, usePlannerDates, usePlannerReallocation, usePlanner
 import { ControlsBar } from './planner/ControlsBar';
 import { DetailDrawer } from './planner/DetailDrawer';
 import { ReallocationView } from './planner/ReallocationView';
+import { RiskInsights } from './planner/RiskInsights';
 import { SummaryStrip } from './planner/SummaryStrip';
 import { TurnaroundTable } from './planner/TurnaroundTable';
 import { apiParams, usePlannerFilters } from './planner/usePlannerFilters';
 
 // Buffer Planner: for one day and budget, which turnarounds get extra ground time, how much, and why. In reallocate
-// mode: which stops give minutes and which receive them, within each aircraft's day.
+// mode: which stops give minutes and which receive them, within each aircraft's day. Risk insights (add mode) charts the
+// turnarounds behind the current filters; its High / Medium / Low tiles set the same risk filter as the chips.
 // The page scrolls; the controls bar sticks to the top, and the table scrolls inside its card with a sticky header,
 // sized so that once the page is scrolled the table fills the space under the controls.
 export default function BufferPlanner() {
@@ -49,6 +51,8 @@ export default function BufferPlanner() {
       {summary.isError && !summary.data
         ? <ErrorState title="Could not load the day summary" error={summary.error} onRetry={() => void summary.refetch()} retrying={summary.isFetching} />
         : <SummaryStrip summary={summary.data} />}
+
+      <RiskInsights filters={filters} update={update} onOpen={(turn) => update({ turn })} />
 
       {table.isError && !table.data ? (
         <ErrorState title="Could not load the turnarounds" error={table.error} onRetry={() => void table.refetch()} retrying={table.isFetching} />
