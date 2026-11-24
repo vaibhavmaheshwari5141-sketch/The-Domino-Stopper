@@ -52,6 +52,7 @@ export function createApiHandler(config: Config, source: DataSource): ApiHandler
     { path: 'planner/turnarounds', load: planner.getTurnarounds, params: planner.turnaroundsParams },
     { path: 'planner/turnaround/:turn_id', load: planner.getDetail, params: planner.detailParams },
     { path: 'planner/airports', load: planner.getAirports, params: planner.airportsParams },
+    { path: 'planner/insights', load: planner.getInsights, params: planner.insightsParams },
     { path: 'planner/reallocation', load: planner.getReallocation, params: planner.reallocationParams },
     { path: 'planner/export', load: planner.getExport, params: planner.exportParams, csv: true },
     { path: 'aircraft-day/aircraft', load: aircraftDay.getAircraftList, params: aircraftDay.listParams },
