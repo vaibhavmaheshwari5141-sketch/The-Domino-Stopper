@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   type AircraftDay, type AircraftListResponse, type AirportBuffer, type AirportHourly, type AirportListResponse, type AirportMonth,
   type AirportProfile, type NetworkScatter, type AirportImpactResponse, type AbsorptionResult, type LegPeriod, type PropagationByLeg,
-  type PropagationCurve, type PropagationKpis, type PropagationSegments, type SegmentType, apiGet, buildUrl, type MetaResponse, type OverviewResponse, type PlannerAirport, type PlannerDay, type PlannerDetail, type PlannerSummary,
+  type PropagationCurve, type PropagationKpis, type PropagationSegments, type SegmentType, apiGet, buildUrl, type MetaResponse, type OverviewResponse, type PlannerAirport, type PlannerDay, type PlannerDetail, type PlannerInsights, type PlannerSummary,
   type PlannerTurnaroundsResponse, type QueryParams, type SimAllocationResponse, type SimDailyResponse, type SimStrategiesResponse,
   type SimSweepResponse, type ModelQuality, type RiskGroundBand, type RiskHeatmap, type RiskSummary,
   type RiskTrendRow, type RiskTurnaround, type DatasetPreview, type DatasetProfile, type DatasetSchema, type DatasetsResponse,
@@ -63,6 +63,16 @@ export function usePlannerTurnarounds(params: QueryParams) {
     queryKey: ['planner', 'turnarounds', params],
     queryFn: ({ signal }) => apiGet<PlannerTurnaroundsResponse>('/api/planner/turnarounds', params, { signal }),
     placeholderData: keepPreviousData,
+  });
+}
+
+/** Risk insights: charts for the planner's current filters (all pages). Keeps the previous charts while new ones load. */
+export function usePlannerInsights(params: QueryParams, enabled = true) {
+  return useQuery({
+    queryKey: ['planner', 'insights', params],
+    queryFn: ({ signal }) => apiGet<PlannerInsights>('/api/planner/insights', params, { signal }),
+    placeholderData: keepPreviousData,
+    enabled,
   });
 }
 
