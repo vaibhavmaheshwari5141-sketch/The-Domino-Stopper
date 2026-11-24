@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { PlannerDay, PlannerDetail, PlannerSummary, PlannerTurnaroundsResponse } from '../shared/api-types.ts';
+import type { PlannerDay, PlannerDetail, PlannerInsights, PlannerSummary, PlannerTurnaroundsResponse } from '../shared/api-types.ts';
 import { passThroughAt } from '../shared/planner.ts';
 import type { ApiHandler } from '../server/app.ts';
 import { clearAll } from '../server/cache.ts';
@@ -166,5 +166,40 @@ describe('planner/export', () => {
     expect(lines).toHaveLength(3);
     expect(lines[0].split(',').slice(0, 5)).toEqual(['flight_date', 'airport', 'turn_id', 'tail_number', 'inbound_flight']);
     expect(lines[1]).toContain('AA600');
+  });
+});
+
+describe('planner/insights', () => {
+  it('keeps every risk band in the tiles and follows the risk filter in the charts', async () => {
+    const all = await json<PlannerInsights>(`insights?${DAY}`);
+    expect(all.total).toBe(6);
+    expect(all.bands.map((b) => [b.risk_band, b.turnarounds, b.with_buffer, b.buffer_min])).toEqual([
+      ['High', 2, 2, 20], ['Medium', 3, 1, 10], ['Low', 1, 0, 0],
+    ]);
+    expect(all.by_buffer).toEqual([{ extra_min: 0, turnarounds: 3 }, { extra_min: 5, turnarounds: 1 },
+      { extra_min: 10, turnarounds: 1 }, { extra_min: 15, turnarounds: 1 }]);
+
+    const high = await json<PlannerInsights>(`insights?${DAY}&risk_band=High`);
+    expect(high.risk_band).toBe('High');
+    expect(high.total).toBe(2);
+    expect(high.bands).toHaveLength(3);                                     // tiles ignore the risk filter
+    expect(high.points.map((p) => p.tail_number)).toEqual(['N600AA', 'N100AA']); // riskiest first
+    expect(high.by_airport.map((a) => [a.key, a.turnarounds, a.buffer_min])).toEqual([['CLT', 1, 5], ['DFW', 1, 15]]);
+    expect(high.by_hour.map((h) => h.key)).toEqual(['0', '20']);
+    expect(high.by_reason).toEqual([{ reason_code: 'Added: likely late arrival that extra minutes can absorb', turnarounds: 2 }]);
+  });
+
+  it('applies the other filters and refuses an unknown risk band', async () => {
+    const dfw = await json<PlannerInsights>(`insights?${DAY}&airport=DFW&very_short=exclude`);
+    expect(dfw.total).toBe(3);
+    expect(dfw.bands.find((b) => b.risk_band === 'Medium')?.turnarounds).toBe(1);
+    expect((await get(`insights?${DAY}&risk_band=Extreme`)).status).toBe(400);
+  });
+
+  it('has model-view estimates only at the main budget', async () => {
+    const two = await json<PlannerInsights>('insights?date=2026-03-15&budget=2');
+    expect(two.bands.every((b) => b.realised_absorbed_resp_min === null)).toBe(true);
+    const five = await json<PlannerInsights>(`insights?${DAY}`);
+    expect(five.bands.find((b) => b.risk_band === 'High')?.realised_absorbed_resp_min).toBe(30);
   });
 });
