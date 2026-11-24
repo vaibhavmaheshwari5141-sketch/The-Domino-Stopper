@@ -2,8 +2,8 @@
 // filtered by flight_date and budget_scenario (or by turn_id), and the table is paged on the server.
 
 import type {
-  PlannerAirport, PlannerBreakdown, PlannerBudgetOption, PlannerDay, PlannerDetail, PlannerRow, PlannerSummary,
-  PlannerTurnaroundsResponse, ReallocationResponse, ReallocationRow,
+  PlannerAirport, PlannerBreakdown, PlannerBudgetOption, PlannerDay, PlannerDetail, PlannerInsightBand, PlannerInsightGroup,
+  PlannerInsightPoint, PlannerInsights, PlannerRow, PlannerSummary, PlannerTurnaroundsResponse, ReallocationResponse, ReallocationRow,
 } from '../../shared/api-types.ts';
 import { formatMinutes, formatNumber, formatPercent } from '../../shared/format.ts';
 import {
@@ -76,6 +76,7 @@ export const summaryParams = (p: URLSearchParams) => {
 export const turnaroundsParams = (p: URLSearchParams) => normalised(readTableQuery(p));
 export const exportParams = (p: URLSearchParams) => normalised({ ...readTableQuery(p), limit: EXPORT_MAX_ROWS, offset: 0 });
 const readExportQuery = (p: URLSearchParams) => readTableQuery(p, EXPORT_MAX_ROWS);
+export const insightsParams = (p: URLSearchParams) => normalised(readFilters(p));
 export const airportsParams = (p: URLSearchParams) => normalised({ date: isoDate(p, 'date') });
 export const reallocationParams = (p: URLSearchParams) =>
   normalised({ date: isoDate(p, 'date'), airport: airportCode(p), tail: searchText(p, 'tail') });
@@ -222,6 +223,68 @@ export async function getTurnarounds(p: URLSearchParams): Promise<PlannerTurnaro
   const q = readTableQuery(p);
   const [rows, counts] = await Promise.all([tableRows(q), breakdown(q)]);
   return { rows, total: counts.total, breakdown: counts };
+}
+
+/** Most dots in the "late chance vs ground time" chart: the riskiest turnarounds first. */
+export const INSIGHT_POINTS_MAX = 1500;
+
+const WITH_BUFFER = 'SUM(CASE WHEN r.recommended_extra_min > 0 THEN 1 ELSE 0 END)';
+const GROUP_COLUMNS = `COUNT(*) AS turnarounds, ${WITH_BUFFER} AS with_buffer, COALESCE(SUM(r.recommended_extra_min), 0) AS buffer_min,
+  SUM(r.expected_absorbed_min) AS expected_absorbed_min, AVG(p.p_late15) AS avg_p_late15`;
+
+/**
+ * Risk insights for the Buffer Planner: the same filters as the table, over every page. The band tiles ignore the
+ * risk filter (so all three stay clickable); every chart follows it.
+ */
+export async function getInsights(p: URLSearchParams): Promise<PlannerInsights> {
+  const f = readFilters(p);
+  const w = where(f);
+  const all = where({ ...f, risk_band: 'all' });
+  const group = (key: string) => query<PlannerInsightGroup>(
+    `SELECT ${key} AS key, ${GROUP_COLUMNS} FROM ${from()} WHERE ${w.sql} GROUP BY 1`, w.params);
+
+  const [bands, hours, airports, segments, buffers, reasons, points] = await Promise.all([
+    query<PlannerInsightBand>(
+      `SELECT COALESCE(p.risk_band, 'Unknown') AS risk_band, COUNT(*) AS turnarounds, ${WITH_BUFFER} AS with_buffer,
+              COALESCE(SUM(r.recommended_extra_min), 0) AS buffer_min, SUM(r.expected_absorbed_min) AS expected_absorbed_min,
+              SUM(r.realised_absorbed_min) AS realised_absorbed_min,
+              ${f.budget === MAIN_BUDGET ? 'SUM(r.realised_absorbed_resp_min)' : 'CAST(NULL AS DOUBLE)'} AS realised_absorbed_resp_min,
+              SUM(CASE WHEN r.late_avoided_flag THEN 1 ELSE 0 END) AS late_avoided, AVG(p.p_late15) AS avg_p_late15,
+              AVG(p.pred_inbound_delay_min) AS avg_pred_inbound_min, AVG(p.actual_inbound_delay_min) AS avg_actual_inbound_min
+       FROM ${from()} WHERE ${all.sql} GROUP BY 1`,
+      all.params,
+    ),
+    group('CAST(p.sched_dep_hour_local AS STRING)'),
+    group('r.airport'),
+    group(`COALESCE(r.segment, 'Unknown')`),
+    query<{ extra_min: number; turnarounds: number }>(
+      `SELECT r.recommended_extra_min AS extra_min, COUNT(*) AS turnarounds FROM ${from()} WHERE ${w.sql} GROUP BY 1 ORDER BY 1`, w.params),
+    query<{ reason_code: string | null; turnarounds: number }>(
+      `SELECT r.reason_code, COUNT(*) AS turnarounds FROM ${from()} WHERE ${w.sql} GROUP BY 1 ORDER BY 2 DESC`, w.params),
+    query<PlannerInsightPoint>(
+      `SELECT r.turn_id, r.airport, p.inbound_from, p.outbound_to, p.outbound_flight_no, p.tail_number, p.risk_band, p.p_late15,
+              r.current_ground_min, r.recommended_extra_min, r.expected_absorbed_min
+       FROM ${from()} WHERE ${w.sql}
+       ORDER BY p.p_late15 DESC NULLS LAST, r.turn_id LIMIT ${INSIGHT_POINTS_MAX}`,
+      w.params,
+    ),
+  ]);
+
+  const order = (b: string) => { const i = (RISK_BANDS as readonly string[]).indexOf(b); return i < 0 ? RISK_BANDS.length : i; };
+  return {
+    date: f.date,
+    budget: f.budget,
+    risk_band: f.risk_band,
+    total: buffers.reduce((s, b) => s + b.turnarounds, 0),
+    bands: [...bands].sort((a, b) => order(a.risk_band) - order(b.risk_band)),
+    by_hour: hours.filter((h) => h.key !== null).sort((a, b) => Number(a.key) - Number(b.key)),
+    by_airport: [...airports].sort((a, b) => b.turnarounds - a.turnarounds || a.key.localeCompare(b.key)).slice(0, 10),
+    by_segment: [...segments].sort((a, b) => a.key.localeCompare(b.key)),
+    by_buffer: buffers,
+    by_reason: reasons.map((r) => ({ reason_code: r.reason_code ?? 'No reason given', turnarounds: r.turnarounds })),
+    points,
+    points_limit: INSIGHT_POINTS_MAX,
+  };
 }
 
 export async function getAirports(p: URLSearchParams): Promise<PlannerAirport[]> {
