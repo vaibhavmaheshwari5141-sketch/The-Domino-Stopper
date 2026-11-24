@@ -251,6 +251,65 @@ export interface PlannerTurnaroundsResponse {
   breakdown: PlannerBreakdown;
 }
 
+/** One risk band on a day (other filters applied, risk filter ignored): the clickable tiles of Risk insights. */
+export interface PlannerInsightBand {
+  risk_band: string;
+  turnarounds: number;
+  with_buffer: number;
+  buffer_min: number;
+  expected_absorbed_min: number | null;
+  realised_absorbed_min: number | null;
+  /** Model view, main budget only. */
+  realised_absorbed_resp_min: number | null;
+  late_avoided: number;
+  avg_p_late15: number | null;
+  avg_pred_inbound_min: number | null;
+  avg_actual_inbound_min: number | null;
+}
+
+export interface PlannerInsightGroup {
+  key: string;
+  turnarounds: number;
+  with_buffer: number;
+  buffer_min: number;
+  expected_absorbed_min: number | null;
+  avg_p_late15: number | null;
+}
+
+/** One turnaround as a dot: late chance against planned ground time. */
+export interface PlannerInsightPoint {
+  turn_id: string;
+  airport: string;
+  inbound_from: string | null;
+  outbound_to: string | null;
+  outbound_flight_no: number | null;
+  tail_number: string | null;
+  risk_band: string | null;
+  p_late15: number | null;
+  current_ground_min: number | null;
+  recommended_extra_min: number;
+  expected_absorbed_min: number | null;
+}
+
+/** GET /api/planner/insights: charts for the Buffer Planner's current filters (all pages, not just the table's page). */
+export interface PlannerInsights {
+  date: string;
+  budget: number;
+  /** The risk band the charts show ('all' for every band). */
+  risk_band: string;
+  /** Turnarounds behind the charts. */
+  total: number;
+  bands: PlannerInsightBand[];
+  by_hour: PlannerInsightGroup[];
+  by_airport: PlannerInsightGroup[];
+  by_segment: PlannerInsightGroup[];
+  by_buffer: { extra_min: number; turnarounds: number }[];
+  by_reason: { reason_code: string; turnarounds: number }[];
+  points: PlannerInsightPoint[];
+  /** Points are the riskiest turnarounds up to this many. */
+  points_limit: number;
+}
+
 export interface PlannerBudgetOption {
   budget_scenario: number;
   recommended_extra_min: number;
